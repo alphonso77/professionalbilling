@@ -1,0 +1,44 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output
+dist/
+frontend/dist/
+frontend/node_modules/
+
+# Env files (keep *.example)
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Logs
+*.log
+logs/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/settings.json.example
+*.swp
+*.swo
+
+# TypeScript
+*.tsbuildinfo
+
+# Railway
+.railway/
+.railway.json
+
+# Misc
+.cache/
+tmp/

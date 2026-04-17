@@ -1,0 +1,6 @@
+require:
+  - tsx
+  - test/setup.ts
+spec: 'test/**/*.test.ts'
+timeout: 5000
+exit: true
