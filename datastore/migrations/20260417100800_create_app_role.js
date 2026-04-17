@@ -21,7 +21,12 @@ exports.up = async function (knex) {
 
   if (pw) {
     await knex.raw(
-      `ALTER ROLE professionalbilling_app WITH LOGIN PASSWORD '${pw.replace(/'/g, "''")}'`
+      `DO $do$
+       BEGIN
+         EXECUTE format('ALTER ROLE professionalbilling_app WITH LOGIN PASSWORD %L', ?);
+       END
+       $do$`,
+      [pw]
     );
   }
 

@@ -39,7 +39,7 @@ echo "Setting placeholder env vars on api + workers (operator fills real values)
 for var in CLERK_SECRET_KEY CLERK_PUBLISHABLE_KEY CLERK_WEBHOOK_SIGNING_SECRET \
            STRIPE_SECRET_KEY STRIPE_CLIENT_ID STRIPE_WEBHOOK_SECRET \
            STRIPE_CONNECT_REDIRECT_URI RESEND_API_KEY ENCRYPTION_KEY \
-           DATABASE_APP_URL; do
+           DATABASE_APP_URL PROFESSIONALBILLING_APP_PASSWORD; do
   railway variables --set "$var=REPLACE_ME" --service api
   railway variables --set "$var=REPLACE_ME" --service workers
 done
@@ -55,12 +55,14 @@ Done. Manual follow-up:
   1. In Railway dashboard → api service → Settings → set "Config as Code" path to "railway.toml"
   2. Same for workers → "railway.workers.toml"
   3. Same for frontend → "railway.frontend.toml"
-  4. Create `professionalbilling_app` restricted DB role post-migration:
-       CREATE ROLE professionalbilling_app LOGIN PASSWORD '...' NOBYPASSRLS;
-       GRANT CONNECT ON DATABASE railway TO professionalbilling_app;
-       -- remaining grants are applied by the create_app_role migration
-     Then set DATABASE_APP_URL for api + workers.
-  5. Replace REPLACE_ME placeholder env vars with real values.
-  6. Configure custom domain: professionalbilling.fratellisoftware.com → frontend service.
+  4. Set PROFESSIONALBILLING_APP_PASSWORD (api + workers) to a strong password.
+     The `create_app_role` migration uses it to create the `professionalbilling_app`
+     role with LOGIN on first deploy. No manual psql required.
+  5. Set DATABASE_APP_URL (api + workers) to the Postgres plugin's connection
+     string, swapping the superuser creds for `professionalbilling_app` + the
+     password from step 4. Example shape:
+       postgresql://professionalbilling_app:<pw>@<host>:<port>/<db>
+  6. Replace remaining REPLACE_ME placeholder env vars with real values.
+  7. Configure custom domain: professionalbilling.fratellisoftware.com → frontend service.
 
 EOF
