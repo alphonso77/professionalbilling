@@ -14,7 +14,8 @@
     "migrate:make": "knex migrate:make --knexfile datastore/knexfile.js",
     "migrate:rollback": "knex migrate:rollback --knexfile datastore/knexfile.js",
     "seed": "knex seed:run --knexfile datastore/knexfile.js",
-    "worker:webhook-processor": "node dist/workers/webhook-processor.js"
+    "setup:webhooks": "tsx src/scripts/setup-webhooks.ts",
+    "worker:stripe-events": "tsx src/workers/stripe-events.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^7.3.0",

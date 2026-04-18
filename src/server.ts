@@ -15,6 +15,7 @@ import { clerkSession, requireOrg } from './middleware/auth';
 // before we build the doc.
 import healthRoutes from './routes/health';
 import webhookRoutes from './routes/webhooks';
+import stripeWebhookRouter from './routes/stripe-webhook';
 import oauthRoutes from './routes/oauth';
 import docsRoutes from './routes/docs';
 import meRoutes from './routes/me';
@@ -46,6 +47,15 @@ app.use(
     credentials: true,
   })
 );
+
+// Stripe webhooks need the raw body for signature verification — mount the raw
+// parser + router BEFORE express.json so the global JSON parser doesn't consume it.
+app.use(
+  '/api/webhooks/stripe',
+  express.raw({ type: 'application/json', limit: '1mb' }),
+  stripeWebhookRouter
+);
+
 app.use(express.json({ limit: '1mb' }));
 
 const globalLimiter = rateLimit({
