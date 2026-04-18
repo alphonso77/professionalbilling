@@ -15,6 +15,8 @@ const UserSchema = z
     clerk_user_id: z.string(),
     role: z.enum(['owner', 'admin', 'member']),
     default_rate_cents: z.number().int().nullable(),
+    is_admin: z.boolean(),
+    easter_egg_enabled: z.boolean(),
   })
   .openapi('MeUser');
 
@@ -35,7 +37,15 @@ const UpdateMeBody = z
   })
   .openapi('UpdateMeBody');
 
-const USER_COLUMNS = ['id', 'email', 'clerk_user_id', 'role', 'default_rate_cents'];
+const USER_COLUMNS = [
+  'id',
+  'email',
+  'clerk_user_id',
+  'role',
+  'default_rate_cents',
+  'is_admin',
+  'easter_egg_enabled',
+];
 
 registry.registerPath({
   method: 'get',

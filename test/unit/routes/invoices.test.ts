@@ -396,14 +396,13 @@ describe('services/invoices — createDraft', () => {
   });
 });
 
-describe('services/invoices — finalize', () => {
-  it('allocates sequential YYYY-NNNN numbers per org/year', async () => {
+describe('services/invoices — finalize (lazy PI)', () => {
+  it('allocates sequential YYYY-NNNN numbers and does NOT touch Stripe', async () => {
     const db = makeMockDb();
     seedOrg(db);
     seedClient(db, 'client_1');
-    seedPlatform(db);
+    // NOTE: platform intentionally omitted — finalize no longer requires Stripe.
 
-    // Seed two draft invoices with totals so finalize proceeds.
     db._seed('invoices', {
       id: 'inv_a',
       org_id: 'org_1',
@@ -421,48 +420,40 @@ describe('services/invoices — finalize', () => {
       subtotal_cents: 20_000,
     });
 
-    const deps = {
-      createPaymentIntent: async (inv: any) => ({
-        paymentIntentId: `pi_${inv.id}`,
-        clientSecret: `pi_${inv.id}_secret`,
-      }),
-    };
-
-    const a = await finalizeInvoice('inv_a', 'org_1', db as any, deps);
-    const b = await finalizeInvoice('inv_b', 'org_1', db as any, deps);
+    const a = await finalizeInvoice('inv_a', 'org_1', db as any);
+    const b = await finalizeInvoice('inv_b', 'org_1', db as any);
 
     const year = new Date().getUTCFullYear();
     expect(a.invoice.number).to.equal(`${year}-0001`);
     expect(b.invoice.number).to.equal(`${year}-0002`);
     expect(a.invoice.status).to.equal('open');
-    expect(a.invoice.stripe_payment_intent_id).to.equal('pi_inv_a');
-    expect(a.invoice.stripe_client_secret).to.equal('pi_inv_a_secret');
+    // PI is lazy now — finalize leaves these null.
+    expect(a.invoice.stripe_payment_intent_id ?? null).to.equal(null);
+    expect(a.invoice.stripe_client_secret ?? null).to.equal(null);
     expect(a.invoice.payment_token).to.be.a('string').with.length.greaterThan(10);
   });
 
-  it('fails with 424 when org has no Stripe platform row', async () => {
+  it('rejects finalize when total_cents <= 0', async () => {
     const db = makeMockDb();
     seedOrg(db);
     seedClient(db, 'client_1');
     db._seed('invoices', {
-      id: 'inv_a',
+      id: 'inv_zero',
       org_id: 'org_1',
       client_id: 'client_1',
       status: 'draft',
-      total_cents: 10_000,
-      subtotal_cents: 10_000,
+      total_cents: 0,
+      subtotal_cents: 0,
     });
 
     let caught: unknown;
     try {
-      await finalizeInvoice('inv_a', 'org_1', db as any, {
-        createPaymentIntent: async () => ({ paymentIntentId: 'pi_x', clientSecret: 's' }),
-      });
+      await finalizeInvoice('inv_zero', 'org_1', db as any);
     } catch (err) {
       caught = err;
     }
     expect(caught).to.be.instanceOf(AppError);
-    expect((caught as AppError).statusCode).to.equal(424);
+    expect((caught as AppError).statusCode).to.equal(400);
   });
 
   it('refuses to finalize a non-draft invoice', async () => {
@@ -480,9 +471,7 @@ describe('services/invoices — finalize', () => {
 
     let caught: unknown;
     try {
-      await finalizeInvoice('inv_a', 'org_1', db as any, {
-        createPaymentIntent: async () => ({ paymentIntentId: 'pi', clientSecret: 's' }),
-      });
+      await finalizeInvoice('inv_a', 'org_1', db as any);
     } catch (err) {
       caught = err;
     }

@@ -3,10 +3,7 @@ import type { Knex } from 'knex';
 
 import { tdb, currentOrgId } from '../config/tenant-context';
 import { AppError } from '../middleware/error-handler';
-import {
-  createInvoicePaymentIntent,
-  resolveConnectedAccountId,
-} from './stripe-payment-intents';
+import { resolveConnectedAccountId } from './stripe-payment-intents';
 
 export type InvoiceStatus = 'draft' | 'open' | 'paid' | 'void';
 
@@ -295,15 +292,10 @@ export async function allocateNextNumber(
   return `${year}-${String(seq).padStart(4, '0')}`;
 }
 
-export interface FinalizeDeps {
-  createPaymentIntent: typeof createInvoicePaymentIntent;
-}
-
 export async function finalizeInvoice(
   id: string,
   orgId: string = currentOrgId(),
-  t: Tdb = tdb,
-  deps: FinalizeDeps = { createPaymentIntent: createInvoicePaymentIntent }
+  t: Tdb = tdb
 ) {
   const invoice = (await t('invoices').where({ id }).first()) as InvoiceRow | undefined;
   if (!invoice) throw new AppError(404, 'Invoice not found');
@@ -314,45 +306,9 @@ export async function finalizeInvoice(
     throw new AppError(400, 'Invoice total must be greater than zero to finalize');
   }
 
-  const platform = (await t('platforms')
-    .where({ type: 'stripe' })
-    .select(
-      'external_account_id',
-      'credentials_encrypted',
-      'credentials_iv',
-      'credentials_tag'
-    )
-    .first()) as
-    | {
-        external_account_id: string | null;
-        credentials_encrypted: Buffer | null;
-        credentials_iv: Buffer | null;
-        credentials_tag: Buffer | null;
-      }
-    | undefined;
-
-  if (!platform) {
-    throw new AppError(424, 'Stripe is not connected for this org');
-  }
-
-  const connectedAccountId = resolveConnectedAccountId(platform);
-
-  const client = (await t('clients')
-    .where({ id: invoice.client_id })
-    .select('id', 'email')
-    .first()) as { id: string; email: string | null } | undefined;
-
   const issueDate = new Date();
   const year = issueDate.getUTCFullYear();
   const number = await allocateNextNumber(orgId, year, t);
-
-  const pi = await deps.createPaymentIntent({
-    id: invoice.id,
-    orgId,
-    number,
-    totalCents: toNum(invoice.total_cents),
-    clientEmail: client?.email ?? null,
-  }, connectedAccountId);
 
   const paymentToken = crypto.randomUUID();
 
@@ -360,8 +316,6 @@ export async function finalizeInvoice(
     status: 'open',
     number,
     issue_date: issueDate.toISOString().slice(0, 10),
-    stripe_payment_intent_id: pi.paymentIntentId,
-    stripe_client_secret: pi.clientSecret,
     payment_token: paymentToken,
   });
 

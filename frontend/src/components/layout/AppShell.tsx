@@ -9,10 +9,13 @@ import {
   Bell,
   Plug,
   Settings,
+  ShieldCheck,
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { PiButton } from "@/components/PiButton";
+import { useMe } from "@/hooks/use-me";
 
 type NavItem = {
   to: string;
@@ -31,7 +34,15 @@ const NAV: NavItem[] = [
   { to: "/docs", label: "Docs", icon: BookOpen },
 ];
 
+const ADMIN_NAV: NavItem = {
+  to: "/admin/users",
+  label: "Admin",
+  icon: ShieldCheck,
+};
+
 export function AppShell() {
+  const { data: me } = useMe();
+  const navItems = me?.user?.is_admin ? [...NAV, ADMIN_NAV] : NAV;
   return (
     <div className="flex h-full min-h-screen bg-[var(--color-background)] text-[var(--color-foreground)]">
       <aside className="hidden w-60 shrink-0 border-r border-[var(--color-border)] bg-[var(--color-card)] md:flex md:flex-col">
@@ -42,7 +53,7 @@ export function AppShell() {
           </span>
         </div>
         <nav className="flex-1 space-y-1 p-3">
-          {NAV.map((item) => {
+          {navItems.map((item) => {
             const Icon = item.icon;
             return (
               <NavLink
@@ -77,6 +88,7 @@ export function AppShell() {
             />
           </div>
           <div className="flex items-center gap-2">
+            <PiButton />
             <ThemeToggle />
             <UserButton afterSignOutUrl="/" />
           </div>

@@ -16,6 +16,7 @@ import {
   updateDraft,
   voidInvoice,
 } from '../services/invoices';
+import { ensurePaymentIntent } from '../services/ensure-payment-intent';
 import { tdb } from '../config/tenant-context';
 import { getInvoiceEmailQueue } from '../config/queues';
 
@@ -154,13 +155,13 @@ registry.registerPath({
   method: 'post',
   path: '/api/invoices/{id}/finalize',
   tags: ['invoices'],
-  summary: 'Finalize a draft invoice (assign number, create Stripe PaymentIntent)',
+  summary: 'Finalize a draft invoice (assign number; PI is created lazily on first view)',
   security: [{ bearerAuth: [] }, { orgIdHeader: [] }],
   request: { params: IdParam },
   responses: {
     200: { description: 'Finalized', content: { 'application/json': { schema: OneWithItemsResponse } } },
+    400: { description: 'Invoice total must be greater than zero' },
     409: { description: 'Not a draft' },
-    424: { description: 'Stripe not connected' },
   },
 });
 
@@ -238,8 +239,21 @@ export async function handleList(
 
 export async function handleGet(id: string, t = tdb) {
   const { invoice, items, client } = await getInvoiceWithItems(id, t);
+
+  // Lazy PI: open invoices without a PaymentIntent get one created on first view.
+  if (invoice.status === 'open' && !invoice.stripe_payment_intent_id) {
+    await ensurePaymentIntent(id, t);
+  }
+
+  // Re-read after the possible ensurePaymentIntent write so the response
+  // reflects the freshly-persisted client_secret.
+  const refreshed =
+    invoice.status === 'open' && !invoice.stripe_payment_intent_id
+      ? await getInvoiceWithItems(id, t)
+      : { invoice, items, client };
+
   let connectedAccountId: string | null = null;
-  if (invoice.status === 'open') {
+  if (refreshed.invoice.status === 'open') {
     const platform = (await t('platforms')
       .where({ type: 'stripe' })
       .select('external_account_id')
@@ -248,9 +262,9 @@ export async function handleGet(id: string, t = tdb) {
   }
   return {
     data: buildDetailPayload(
-      serializeInvoice(invoice),
-      items.map(serializeLineItem),
-      client,
+      serializeInvoice(refreshed.invoice),
+      refreshed.items.map(serializeLineItem),
+      refreshed.client,
       connectedAccountId
     ),
   };
@@ -282,16 +296,16 @@ export async function handleUpdate(id: string, body: z.infer<typeof UpdateBody>,
 
 export async function handleFinalize(id: string, orgId: string, t = tdb) {
   const { invoice, items, client } = await finalizeInvoice(id, orgId, t);
-  const platform = (await t('platforms')
-    .where({ type: 'stripe' })
-    .select('external_account_id')
-    .first()) as { external_account_id: string | null } | undefined;
+  // PI is created lazily on first GET — don't create it here. That means the
+  // finalize response has no `stripe_client_secret` yet, which is fine:
+  // buildDetailPayload will null it out and the client will re-fetch via
+  // GET /api/invoices/:id to render the payment element.
   return {
     data: buildDetailPayload(
       serializeInvoice(invoice),
       items.map(serializeLineItem),
       client,
-      platform?.external_account_id ?? null
+      null
     ),
   };
 }

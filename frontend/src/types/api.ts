@@ -4,6 +4,22 @@ export type MeUser = {
   clerk_user_id: string;
   role: "owner" | "admin" | "member";
   default_rate_cents: number | null;
+  is_admin: boolean;
+  easter_egg_enabled: boolean;
+};
+
+export type AdminUserRow = {
+  id: string;
+  email: string | null;
+  role: "owner" | "admin" | "member";
+  is_admin: boolean;
+  easter_egg_enabled: boolean;
+  created_at: string;
+};
+
+export type UpdateAdminUserInput = {
+  is_admin?: boolean;
+  easter_egg_enabled?: boolean;
 };
 
 export type Me = {
@@ -172,3 +188,9 @@ export interface UpdateInvoiceInput {
   notes?: string | null;
   removeLineItemIds?: string[];
 }
+
+export type SeedSummary = {
+  clients: number;
+  time_entries: number;
+  invoices: number;
+};

@@ -502,6 +502,10 @@ export function TimeEntriesPage() {
                   <p className="text-xs text-[var(--color-destructive)]">
                     Enter a dollar amount like 200.00
                   </p>
+                ) : parsedRateCents === 0 ? (
+                  <p className="text-xs text-[var(--color-muted-foreground)]">
+                    Logging $0 — is this pro bono?
+                  </p>
                 ) : null}
               </div>
 

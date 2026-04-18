@@ -12,6 +12,7 @@ import { AlertsPage } from "@/pages/AlertsPage";
 import { IntegrationsPage } from "@/pages/IntegrationsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { DocsPage } from "@/pages/DocsPage";
+import { AdminUsersPage } from "@/pages/AdminUsersPage";
 
 export function ProtectedRoutes() {
   return (
@@ -30,6 +31,7 @@ export function ProtectedRoutes() {
             <Route path="settings/integrations" element={<IntegrationsPage />} />
             <Route path="docs" element={<DocsPage />} />
             <Route path="docs/:slug" element={<DocsPage />} />
+            <Route path="admin/users" element={<AdminUsersPage />} />
             <Route path="*" element={<DashboardPage />} />
           </Route>
         </Routes>

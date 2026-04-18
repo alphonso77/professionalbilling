@@ -3,12 +3,19 @@ import { ZodError } from 'zod';
 import { logger } from '../utils/logger';
 
 export class AppError extends Error {
+  public code?: string;
   constructor(
     public statusCode: number,
     public message: string,
+    codeOrOperational?: string | boolean,
     public isOperational = true
   ) {
     super(message);
+    if (typeof codeOrOperational === 'string') {
+      this.code = codeOrOperational;
+    } else if (typeof codeOrOperational === 'boolean') {
+      this.isOperational = codeOrOperational;
+    }
     Object.setPrototypeOf(this, AppError.prototype);
   }
 }
@@ -32,7 +39,10 @@ export function errorHandler(
   }
 
   if (err instanceof AppError) {
-    res.status(err.statusCode).json({ error: err.message });
+    const body = err.code
+      ? { error: { message: err.message, code: err.code } }
+      : { error: err.message };
+    res.status(err.statusCode).json(body);
     return;
   }
 

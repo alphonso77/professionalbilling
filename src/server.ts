@@ -24,6 +24,8 @@ import timeEntriesRoutes from './routes/time-entries';
 import platformsRoutes from './routes/platforms';
 import invoicesRoutes from './routes/invoices';
 import publicInvoicesRoutes from './routes/public-invoices';
+import adminRoutes from './routes/admin';
+import seedRoutes from './routes/seed';
 import { generateOpenApiDocument } from './openapi/generate';
 
 const app = express();
@@ -109,6 +111,8 @@ app.use('/api/clients', requireOrg(), clientsRoutes);
 app.use('/api/time-entries', requireOrg(), timeEntriesRoutes);
 app.use('/api/platforms', requireOrg(), platformsRoutes);
 app.use('/api/invoices', requireOrg(), invoicesRoutes);
+app.use('/api/admin', requireOrg(), adminRoutes);
+app.use('/api/seed', requireOrg(), seedRoutes);
 
 // ---- Error handler (last) ----
 app.use(errorHandler);

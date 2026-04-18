@@ -7,6 +7,8 @@ import { z } from 'zod';
 import { db } from '../config/database';
 import { env } from '../config/env';
 import { registry } from '../openapi/registry';
+import { ensurePaymentIntent } from '../services/ensure-payment-intent';
+import { AppError } from '../middleware/error-handler';
 
 const PublicInvoicePaymentSchema = z
   .object({
@@ -64,6 +66,10 @@ export interface PublicInvoiceDeps {
   findPlatform: (orgId: string) => Promise<{ external_account_id: string | null } | undefined>;
   findOrg: (orgId: string) => Promise<{ name: string } | undefined>;
   findClient: (clientId: string) => Promise<{ name: string } | undefined>;
+  ensurePaymentIntent?: (
+    invoiceId: string,
+    t: (table: string) => Knex.QueryBuilder
+  ) => Promise<{ paymentIntentId: string; clientSecret: string }>;
 }
 
 export function defaultDeps(): PublicInvoiceDeps {
@@ -74,6 +80,7 @@ export function defaultDeps(): PublicInvoiceDeps {
       db('platforms').where({ org_id: orgId, type: 'stripe' }).select('external_account_id').first(),
     findOrg: (orgId) => db('organizations').where({ id: orgId }).select('name').first(),
     findClient: (clientId) => db('clients').where({ id: clientId }).select('name').first(),
+    ensurePaymentIntent: (invoiceId, t) => ensurePaymentIntent(invoiceId, t),
   };
 }
 
@@ -117,7 +124,7 @@ export async function handlePublicInvoice(
     return { status: 410, body: { error: { message: 'Invoice is no longer payable' } } };
   }
 
-  if (invoice.status !== 'open' || !invoice.stripe_client_secret || !invoice.number) {
+  if (invoice.status !== 'open' || !invoice.number) {
     return { status: 410, body: { error: { message: 'Invoice is not payable' } } };
   }
 
@@ -127,6 +134,28 @@ export async function handlePublicInvoice(
       status: 503,
       body: { error: { message: 'Server misconfigured: STRIPE_PUBLISHABLE_KEY missing' } },
     };
+  }
+
+  // Lazy PI: if the invoice doesn't have a client_secret yet, create one now.
+  // A failure here (e.g. the org hasn't connected Stripe) surfaces as 503.
+  let clientSecret = invoice.stripe_client_secret;
+  if (!clientSecret) {
+    const ensureFn = deps.ensurePaymentIntent;
+    if (!ensureFn) {
+      return {
+        status: 503,
+        body: { error: { message: 'Payment intent provisioning unavailable' } },
+      };
+    }
+    try {
+      const ensured = await ensureFn(invoice.id, (table: string) => deps.db(table));
+      clientSecret = ensured.clientSecret;
+    } catch (err) {
+      if (err instanceof AppError && err.statusCode === 503) {
+        return { status: 503, body: { error: { message: err.message } } };
+      }
+      throw err;
+    }
   }
 
   const [platform, org, client] = await Promise.all([
@@ -155,7 +184,7 @@ export async function handlePublicInvoice(
           orgName: org?.name ?? 'Unknown',
           clientName: client?.name ?? 'Unknown',
         },
-        stripeClientSecret: invoice.stripe_client_secret,
+        stripeClientSecret: clientSecret,
         stripePublishableKey: publishableKey,
         connectedAccountId: platform.external_account_id,
       },

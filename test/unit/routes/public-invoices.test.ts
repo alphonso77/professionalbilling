@@ -170,4 +170,30 @@ describe('routes/public-invoices — handlePublicInvoice', () => {
     const res = await handlePublicInvoice('inv_1', 'tok_ok', deps);
     expect(res.status).to.equal(503);
   });
+
+  it('lazily creates the PaymentIntent on first view when missing', async () => {
+    let ensureCalls = 0;
+    const deps = makeDeps({
+      ensurePaymentIntent: async (invoiceId) => {
+        ensureCalls += 1;
+        expect(invoiceId).to.equal('inv_1');
+        return { paymentIntentId: 'pi_fresh', clientSecret: 'pi_fresh_secret' };
+      },
+    });
+    deps._invoices.push({
+      id: 'inv_1',
+      number: '2026-0001',
+      total_cents: 10_000,
+      status: 'open',
+      payment_token: 'tok_ok',
+      stripe_client_secret: null,
+      org_id: 'org_1',
+      client_id: 'client_1',
+    });
+    const res = await handlePublicInvoice('inv_1', 'tok_ok', deps);
+    expect(res.status).to.equal(200);
+    expect(ensureCalls).to.equal(1);
+    const body = res.body as { data: any };
+    expect(body.data.stripeClientSecret).to.equal('pi_fresh_secret');
+  });
 });
