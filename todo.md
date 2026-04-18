@@ -10,6 +10,7 @@
 
 # Testing / Demo Features
 
+* default rate should auto-populate, so the user doesn't have to enter it
 * add an ADMIN menu item (only displays for `founder@fratellisoftware.com`)
 * first feature is to assign an easter egg to any user
 * easter egg is a hidden pi (π) in the top right (see IntegraSentry for pattern)

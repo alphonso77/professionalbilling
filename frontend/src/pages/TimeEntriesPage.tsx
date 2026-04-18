@@ -182,24 +182,28 @@ export function TimeEntriesPage() {
     prevOpenRef.current = open;
   }, [open, resetForm]);
 
+  const resolvedDefaultRateCents = React.useMemo(
+    () => resolveDefaultRateCents(clientId),
+    [resolveDefaultRateCents, clientId],
+  );
+
   React.useEffect(() => {
     if (!open) return;
     if (rateUserEdited) return;
-    if (clientId) return;
-    if (userDefaultRateCents == null) return;
-    setRateDollars(formatCentsAsDollars(userDefaultRateCents));
-  }, [open, rateUserEdited, clientId, userDefaultRateCents]);
+    setRateDollars(
+      resolvedDefaultRateCents == null
+        ? ""
+        : formatCentsAsDollars(resolvedDefaultRateCents),
+    );
+  }, [open, rateUserEdited, resolvedDefaultRateCents]);
 
   const handleClientChange = (nextId: string) => {
     setClientId(nextId);
-    if (rateUserEdited) return;
-    const cents = resolveDefaultRateCents(nextId);
-    setRateDollars(cents == null ? "" : formatCentsAsDollars(cents));
   };
 
   const handleRateChange = (value: string) => {
     setRateDollars(value);
-    setRateUserEdited(true);
+    setRateUserEdited(value.trim() !== "");
   };
 
   const parsedRateCents = React.useMemo<number | null>(() => {
@@ -373,10 +377,10 @@ export function TimeEntriesPage() {
     if (!timer) return;
     setClientId(timer.clientId);
     setDescription(timer.description);
-    if (timer.rateCents != null) {
-      setRateDollars(formatCentsAsDollars(timer.rateCents));
-      setRateUserEdited(true);
-    }
+    setRateDollars(
+      timer.rateCents != null ? formatCentsAsDollars(timer.rateCents) : "",
+    );
+    setRateUserEdited(true);
   }, [open, mode]);
 
   const submitLabel = createEntry.isPending ? "Saving…" : "Save entry";
@@ -485,7 +489,11 @@ export function TimeEntriesPage() {
                   type="number"
                   step="0.01"
                   min="0"
-                  placeholder="200.00"
+                  placeholder={
+                    resolvedDefaultRateCents != null
+                      ? formatCentsAsDollars(resolvedDefaultRateCents)
+                      : "200.00"
+                  }
                   value={rateDollars}
                   onChange={(e) => handleRateChange(e.target.value)}
                   disabled={mode === "timer" && activeTimer != null}

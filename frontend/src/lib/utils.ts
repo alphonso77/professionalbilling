@@ -35,7 +35,7 @@ export function minutesToHours(minutes: number) {
 export function parseDollarsToCents(s: string): number | null {
   const trimmed = s.trim();
   if (!trimmed) return null;
-  if (!/^-?\d*\.?\d{0,2}$/.test(trimmed)) return null;
+  if (!/^\d*\.?\d{0,2}$/.test(trimmed)) return null;
   const n = Number(trimmed);
   if (!Number.isFinite(n)) return null;
   return Math.round(n * 100);
