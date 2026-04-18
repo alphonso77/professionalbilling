@@ -1,16 +1,16 @@
-* double email bug (clerk auth code)
-* cleanup users and orgs when a org is deleted from clerk (subscribre to clerk delete webhooks, like IntegraSentry)
+
+
+# Next Effort
+
 * need to add a 'disconnect' stripe integration
     - it should remove the connected account from my stripe account
     - it should also remove whatever database rows are invovled
-
 * when clicking 'connect stripe' the button re-enables itself for a short period, before navigating you to the stripe oauth page
-
-* swagger UI is publicly available, is that okay?
-
-# Testing / Demo Features
-
-* default rate should auto-populate, so the user doesn't have to enter it
+* double email bug upon signup - we had the same bug in IntegraSentry, it happened to be something with the react component double rendering and causing clerk to send the email twice
+* need to listen for clerk delete org/user webhooks (see how IntegraSentry does this)
+    - if an org is deleted from clerk, all org/user data should get cleaned up in our DB
+    - a future effort can decide which data needs to stay for historical/record keeping purposes
+* time entry should not allow $0 log entries
 * add an ADMIN menu item (only displays for `founder@fratellisoftware.com`)
 * first feature is to assign an easter egg to any user
 * easter egg is a hidden pi (π) in the top right (see IntegraSentry for pattern)

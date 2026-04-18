@@ -49,6 +49,23 @@ Frontend (from `/frontend`):
 
 All user-facing help text lives in `corporate.docs_registry` (seeded). Frontend reads via `GET /api/docs` + `DocsRegistryContext`. UI wires with `<InfoBubble registryKey="..." />` → click opens `<InfoModal>` → "Read more" links to `/docs/:slug` full page. Never hardcode explanatory text in components.
 
+## Money & rates
+
+All monetary values in the DB and at the API boundary are **non-negative integer cents** (`hourly_rate_cents`, `rate_cents`, `default_rate_cents`, invoice totals). Zod schemas enforce `.int().nonnegative()` at request bodies.
+
+UI inputs accept dollars with up to two decimals; converted via `parseDollarsToCents` / `formatCentsAsDollars` in `frontend/src/lib/utils.ts`. Display uses `centsToCurrency` (with `$` symbol). Never store, transmit, or compute amounts in dollars in code paths that touch the DB or API — convert only at the input/display layer.
+
+## Time entry
+
+Single dialog with three input modes (`frontend/src/pages/TimeEntriesPage.tsx`):
+- **Duration** (default): date + start time + duration. Quick-pick chips (15/30/45/60 min) and free-form input (`90` or `1h 30m`).
+- **Timer**: live tracking, persisted to `localStorage` under `professionalbilling.activeTimer`. **Single-device — does not sync across browsers/devices.** A page-level "active timer" banner stays visible whenever a timer is running, so closing the dialog doesn't hide it.
+- **Start / End**: explicit `datetime-local` inputs with `step=900` (15-min snapping).
+
+**Default rate resolution** when populating the rate field on a new entry: `clients.default_rate_cents ?? users.default_rate_cents ?? null`. Per-user default lives on `users.default_rate_cents`, edited at `/settings` (`PATCH /api/me`). Per-client override lives on `clients.default_rate_cents`, edited via the client edit modal (`PATCH /api/clients/:id`). The UI auto-populates the resolved rate; clearing the field re-engages auto-populate, so a user who has *any* default cannot accidentally save with a null rate.
+
+`GET /api/me` returns `{ data: { user, org } }` (not flat) — `default_rate_cents` lives on `data.user`. Uses `tdb` (the `users` table has an RLS policy on `org_id`).
+
 ## Invoicing
 
 Status flow: `draft` → `open` → `paid` (or `void` from any pre-paid state). Line items are mutable only while `draft`; `open` is immutable except for the terminal transitions.
