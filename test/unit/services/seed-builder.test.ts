@@ -18,6 +18,31 @@ function makeMockDb() {
     const conds: Array<(r: Row) => boolean> = [];
     const nonNullCols: string[] = [];
     let cols: string[] | null = null;
+    let distinctMode = false;
+
+    const materialize = (): Row[] => {
+      const matched = tables[tableName].filter((r) => conds.every((f) => f(r)));
+      let result: Row[];
+      if (cols) {
+        result = matched.map((row) => {
+          const o: Row = {};
+          for (const c of cols!) o[c] = row[c];
+          return o;
+        });
+      } else {
+        result = matched.slice();
+      }
+      if (distinctMode && cols) {
+        const seen = new Set<string>();
+        result = result.filter((r) => {
+          const key = JSON.stringify(cols!.map((c) => r[c]));
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
+      return result;
+    };
 
     const api: any = {
       where(cond: Record<string, unknown>) {
@@ -29,9 +54,18 @@ function makeMockDb() {
         conds.push((r) => r[col] !== null && r[col] !== undefined);
         return api;
       },
+      whereIn(col: string, values: unknown[]) {
+        conds.push((r) => values.includes(r[col]));
+        return api;
+      },
       select(...c: string[]) {
         cols = c.filter((x) => x !== '*');
         if (!cols.length) cols = null;
+        return api;
+      },
+      distinct(...c: string[]) {
+        cols = c;
+        distinctMode = true;
         return api;
       },
       forUpdate() {
@@ -80,6 +114,9 @@ function makeMockDb() {
         const before = tables[tableName].length;
         tables[tableName] = tables[tableName].filter((r) => !conds.every((f) => f(r)));
         return before - tables[tableName].length;
+      },
+      then(resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) {
+        return Promise.resolve(materialize()).then(resolve, reject);
       },
     };
     return api;
@@ -143,9 +180,113 @@ describe('services/seed-builder', () => {
     expect(counts.clients).to.equal(4);
     expect(counts.invoices).to.equal(3);
     expect(counts.time_entries).to.be.greaterThan(0);
+    expect(counts.adopted).to.equal(0);
 
     // Real data untouched.
     expect(db._tables.clients.map((r) => r.id)).to.include('real-client');
     expect(db._tables.time_entries.map((r) => r.id)).to.include('real-entry');
+  });
+
+  it('removeSeeded adopts a seeded client that has a non-seeded invoice pointing at it', async () => {
+    const db = makeMockDb();
+    await run('org_1', db as any);
+    const target = db._tables.clients.find((c) => c.name === 'Acme Corp') as Row;
+    expect(target).to.not.be.undefined;
+
+    db._tables.invoices.push({
+      id: 'real-invoice',
+      org_id: 'org_1',
+      client_id: target.id,
+      status: 'open',
+      total_cents: 10_000,
+      seeded_at: null,
+    });
+
+    const counts = await removeSeeded('org_1', db as any);
+    expect(counts.adopted).to.equal(1);
+    expect(counts.clients).to.equal(3);
+
+    const still = db._tables.clients.find((c) => c.id === target.id) as Row;
+    expect(still, 'adopted client still exists').to.not.be.undefined;
+    expect(still.seeded_at).to.equal(null);
+
+    const inv = db._tables.invoices.find((i) => i.id === 'real-invoice') as Row;
+    expect(inv, 'non-seeded invoice preserved').to.not.be.undefined;
+    expect(inv.client_id).to.equal(target.id);
+  });
+
+  it('removeSeeded adopts a seeded client that has a non-seeded time_entry pointing at it', async () => {
+    const db = makeMockDb();
+    await run('org_1', db as any);
+    const target = db._tables.clients.find((c) => c.name === 'Globex Industries') as Row;
+    expect(target).to.not.be.undefined;
+
+    db._tables.time_entries.push({
+      id: 'real-entry',
+      org_id: 'org_1',
+      client_id: target.id,
+      description: 'real work',
+      duration_minutes: 30,
+      hourly_rate_cents: 25_000,
+      seeded_at: null,
+    });
+
+    const counts = await removeSeeded('org_1', db as any);
+    expect(counts.adopted).to.equal(1);
+    expect(counts.clients).to.equal(3);
+
+    const still = db._tables.clients.find((c) => c.id === target.id) as Row;
+    expect(still).to.not.be.undefined;
+    expect(still.seeded_at).to.equal(null);
+
+    const te = db._tables.time_entries.find((t) => t.id === 'real-entry') as Row;
+    expect(te).to.not.be.undefined;
+    expect(te.client_id).to.equal(target.id);
+  });
+
+  it('removeSeeded deletes fully-orphan seeded clients', async () => {
+    const db = makeMockDb();
+    await run('org_1', db as any);
+
+    const counts = await removeSeeded('org_1', db as any);
+    expect(counts.adopted).to.equal(0);
+    expect(counts.clients).to.equal(4);
+
+    const remaining = db._tables.clients.filter((c) => c.org_id === 'org_1');
+    expect(remaining.length).to.equal(0);
+  });
+
+  it('removeSeeded handles mixed adoption (one adopted, others deleted)', async () => {
+    const db = makeMockDb();
+    await run('org_1', db as any);
+    const acme = db._tables.clients.find((c) => c.name === 'Acme Corp') as Row;
+    const globex = db._tables.clients.find((c) => c.name === 'Globex Industries') as Row;
+
+    db._tables.invoices.push({
+      id: 'real-invoice',
+      org_id: 'org_1',
+      client_id: acme.id,
+      status: 'open',
+      total_cents: 5_000,
+      seeded_at: null,
+    });
+    db._tables.time_entries.push({
+      id: 'real-entry',
+      org_id: 'org_1',
+      client_id: globex.id,
+      description: 'real',
+      duration_minutes: 15,
+      hourly_rate_cents: 20_000,
+      seeded_at: null,
+    });
+
+    const counts = await removeSeeded('org_1', db as any);
+    expect(counts.adopted).to.equal(2);
+    expect(counts.clients).to.equal(2);
+
+    const acmeAfter = db._tables.clients.find((c) => c.id === acme.id) as Row;
+    const globexAfter = db._tables.clients.find((c) => c.id === globex.id) as Row;
+    expect(acmeAfter.seeded_at).to.equal(null);
+    expect(globexAfter.seeded_at).to.equal(null);
   });
 });

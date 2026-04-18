@@ -34,6 +34,7 @@
     - if an org is deleted from clerk, all org/user data should get cleaned up in our DB
     - a future effort can decide which data needs to stay for historical/record keeping purposes
 * include an admin feature for a complete DB reset
-    - should optionally clean up clerk
+    - should optionally clean up clerk 
+    - or as an alternative, leave clerk alone, but update the app so that clerk is the source of truth, and if a non-provisioned user is logging in (who was authenticated by clerk) they should get auto-provisioned... thoughts?
     - optionally remove `founder@fratellisoftware.com` (in which case, user gets booted out and must create a new user)
     - with `founder@fratellisoftware.com` staying (mode) just leave what's necessary for them to log in, but remove all data like invoices, time, clients, etc.

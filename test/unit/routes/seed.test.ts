@@ -17,6 +17,31 @@ function makeMockDb() {
   function query(tableName: string) {
     const conds: Array<(r: Row) => boolean> = [];
     let cols: string[] | null = null;
+    let distinctMode = false;
+
+    const materialize = (): Row[] => {
+      const matched = tables[tableName].filter((r) => conds.every((f) => f(r)));
+      let result: Row[];
+      if (cols) {
+        result = matched.map((row) => {
+          const o: Row = {};
+          for (const c of cols!) o[c] = row[c];
+          return o;
+        });
+      } else {
+        result = matched.slice();
+      }
+      if (distinctMode && cols) {
+        const seen = new Set<string>();
+        result = result.filter((r) => {
+          const key = JSON.stringify(cols!.map((c) => r[c]));
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
+      return result;
+    };
 
     const api: any = {
       where(cond: Record<string, unknown>) {
@@ -27,9 +52,18 @@ function makeMockDb() {
         conds.push((r) => r[col] !== null && r[col] !== undefined);
         return api;
       },
+      whereIn(col: string, values: unknown[]) {
+        conds.push((r) => values.includes(r[col]));
+        return api;
+      },
       select(...c: string[]) {
         cols = c.filter((x) => x !== '*');
         if (!cols.length) cols = null;
+        return api;
+      },
+      distinct(...c: string[]) {
+        cols = c;
+        distinctMode = true;
         return api;
       },
       forUpdate() {
@@ -76,6 +110,9 @@ function makeMockDb() {
         tables[tableName] = tables[tableName].filter((r) => !conds.every((f) => f(r)));
         return before - tables[tableName].length;
       },
+      then(resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) {
+        return Promise.resolve(materialize()).then(resolve, reject);
+      },
     };
     return api;
   }
@@ -98,7 +135,7 @@ describe('routes/seed — handlers', () => {
     await handleSeed('org_1', db as any);
     const second = await handleSeed('org_1', db as any);
     expect(second.seeded).to.equal(false);
-    expect(second.summary).to.deep.equal({ clients: 0, time_entries: 0, invoices: 0 });
+    expect(second.summary).to.deep.equal({ clients: 0, time_entries: 0, invoices: 0, adopted: 0 });
   });
 
   it('handleReseed wipes and reinserts, returning fresh counts', async () => {

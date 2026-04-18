@@ -9,6 +9,7 @@ export interface SeedSummary {
   clients: number;
   time_entries: number;
   invoices: number;
+  adopted: number;
 }
 
 interface ClientSpec {
@@ -212,16 +213,21 @@ export async function run(orgId: string, t: Tdb): Promise<SeedSummary> {
     clients: clientCount,
     time_entries: entryCount,
     invoices: invoiceCount,
+    adopted: 0,
   };
 }
 
 /**
- * Delete all rows with `seeded_at IS NOT NULL` in the caller's org.
- * FK cleanup order: invoice_line_items (CASCADE from invoices), then invoices,
- * then time_entries (line items set_null on delete), then clients.
+ * Delete seeded rows (seeded_at IS NOT NULL) in the caller's org. If a
+ * seeded client still has any non-seeded invoice or time_entry pointing at
+ * it (the user booked real work against a demo client), adopt the client
+ * instead of deleting — clear seeded_at so it becomes a normal row.
+ *
+ * Note: a subsequent POST /api/seed will re-insert a fresh "Acme Corp"
+ * alongside any adopted one (no unique constraint on clients.name). v1
+ * caveat — the user can delete the duplicate manually.
  */
 export async function removeSeeded(orgId: string, t: Tdb): Promise<SeedSummary> {
-  // invoices CASCADE to invoice_line_items — just deleting invoices is enough.
   const invoices = (await t('invoices')
     .where({ org_id: orgId })
     .whereNotNull('seeded_at')
@@ -230,14 +236,41 @@ export async function removeSeeded(orgId: string, t: Tdb): Promise<SeedSummary> 
     .where({ org_id: orgId })
     .whereNotNull('seeded_at')
     .del()) as unknown as number;
-  const clients = (await t('clients')
+
+  const seededClients = (await t('clients')
     .where({ org_id: orgId })
     .whereNotNull('seeded_at')
-    .del()) as unknown as number;
+    .select('id')) as Array<{ id: string }>;
+
+  const ids = seededClients.map((c) => c.id);
+  const adoptedSet = new Set<string>();
+  if (ids.length) {
+    const invRefs = (await t('invoices')
+      .whereIn('client_id', ids)
+      .distinct('client_id')) as Array<{ client_id: string }>;
+    for (const r of invRefs) adoptedSet.add(r.client_id);
+
+    const teRefs = (await t('time_entries')
+      .whereIn('client_id', ids)
+      .distinct('client_id')) as Array<{ client_id: string }>;
+    for (const r of teRefs) adoptedSet.add(r.client_id);
+  }
+
+  const toAdopt = ids.filter((id) => adoptedSet.has(id));
+  const toDelete = ids.filter((id) => !adoptedSet.has(id));
+
+  if (toAdopt.length) {
+    await t('clients').whereIn('id', toAdopt).update({ seeded_at: null });
+  }
+  const clients = toDelete.length
+    ? ((await t('clients').whereIn('id', toDelete).del()) as unknown as number)
+    : 0;
+
   return {
     clients: Number(clients) || 0,
     time_entries: Number(timeEntries) || 0,
     invoices: Number(invoices) || 0,
+    adopted: toAdopt.length,
   };
 }
 

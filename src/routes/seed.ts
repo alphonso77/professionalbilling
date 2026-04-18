@@ -13,6 +13,7 @@ const SeedSummarySchema = z
     clients: z.number().int(),
     time_entries: z.number().int(),
     invoices: z.number().int(),
+    adopted: z.number().int(),
   })
   .openapi('SeedSummary');
 
@@ -57,7 +58,10 @@ registry.registerPath({
 
 export async function handleSeed(orgId: string, t = tdb): Promise<{ seeded: boolean; summary: SeedSummary }> {
   if (await hasSeededData(orgId, t)) {
-    return { seeded: false, summary: { clients: 0, time_entries: 0, invoices: 0 } };
+    return {
+      seeded: false,
+      summary: { clients: 0, time_entries: 0, invoices: 0, adopted: 0 },
+    };
   }
   const summary = await run(orgId, t);
   return { seeded: true, summary };
