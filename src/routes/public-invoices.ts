@@ -148,7 +148,9 @@ export async function handlePublicInvoice(
       };
     }
     try {
-      const ensured = await ensureFn(invoice.id, (table: string) => deps.db(table));
+      const ensured = await deps.db.transaction((trx) =>
+        ensureFn(invoice.id, (table: string) => trx(table))
+      );
       clientSecret = ensured.clientSecret;
     } catch (err) {
       if (err instanceof AppError && err.statusCode === 503) {

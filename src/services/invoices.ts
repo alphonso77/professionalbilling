@@ -21,6 +21,7 @@ export interface InvoiceRow {
   stripe_payment_intent_id: string | null;
   stripe_client_secret: string | null;
   payment_token: string | null;
+  seeded_at: string | Date | null;
   paid_at: string | Date | null;
   created_at: string | Date;
   updated_at: string | Date;

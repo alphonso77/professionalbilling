@@ -8,8 +8,10 @@ import {
 
 function makeDeps(overrides?: Partial<PublicInvoiceDeps>): PublicInvoiceDeps & {
   _invoices: Record<string, unknown>[];
+  _state: { transactionCalls: number };
 } {
   const invoices: Record<string, unknown>[] = [];
+  const state = { transactionCalls: 0 };
 
   const mockDb: any = (table: string) => {
     let conds: Array<(r: any) => boolean> = [];
@@ -37,6 +39,11 @@ function makeDeps(overrides?: Partial<PublicInvoiceDeps>): PublicInvoiceDeps & {
     return api;
   };
 
+  mockDb.transaction = async (cb: (trx: any) => Promise<unknown>) => {
+    state.transactionCalls += 1;
+    return cb(mockDb);
+  };
+
   const base: PublicInvoiceDeps = {
     db: mockDb as unknown as Knex,
     stripePublishableKey: 'pk_test_123',
@@ -45,7 +52,7 @@ function makeDeps(overrides?: Partial<PublicInvoiceDeps>): PublicInvoiceDeps & {
     findClient: async () => ({ name: 'Wile E. Coyote' }),
   };
 
-  return Object.assign({ ...base, ...overrides }, { _invoices: invoices });
+  return Object.assign({ ...base, ...overrides }, { _invoices: invoices, _state: state });
 }
 
 describe('routes/public-invoices — handlePublicInvoice', () => {
@@ -193,6 +200,7 @@ describe('routes/public-invoices — handlePublicInvoice', () => {
     const res = await handlePublicInvoice('inv_1', 'tok_ok', deps);
     expect(res.status).to.equal(200);
     expect(ensureCalls).to.equal(1);
+    expect(deps._state.transactionCalls).to.equal(1);
     const body = res.body as { data: any };
     expect(body.data.stripeClientSecret).to.equal('pi_fresh_secret');
   });

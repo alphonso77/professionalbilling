@@ -18,6 +18,13 @@
 
 ## Phase 2
 
+* provide a feedback section - this is a generic form that can capture:
+    - bug reports
+    - feature requests
+    - UI feedback on improvements
+    - the form should be prominent, have a 'feedback' link in the main menu
+    - the feedback should go directly to our DB, and surfaced in the admin area
+    - optionally, the user should have an area showing feedback sent, and a status (pending, acknowledged, clarification requested)
 * need to add a 'disconnect' stripe integration
     - it should remove the connected account from my stripe account
     - it should also remove whatever database rows are invovled
@@ -26,3 +33,7 @@
 * need to listen for clerk delete org/user webhooks (see how IntegraSentry does this)
     - if an org is deleted from clerk, all org/user data should get cleaned up in our DB
     - a future effort can decide which data needs to stay for historical/record keeping purposes
+* include an admin feature for a complete DB reset
+    - should optionally clean up clerk
+    - optionally remove `founder@fratellisoftware.com` (in which case, user gets booted out and must create a new user)
+    - with `founder@fratellisoftware.com` staying (mode) just leave what's necessary for them to log in, but remove all data like invoices, time, clients, etc.

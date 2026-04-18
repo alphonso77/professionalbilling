@@ -10,7 +10,6 @@ import {
   finalizeInvoice,
   getInvoiceWithItems,
   listInvoices,
-  assertInvoiceSendable,
   serializeInvoice,
   serializeLineItem,
   updateDraft,
@@ -19,6 +18,7 @@ import {
 import { ensurePaymentIntent } from '../services/ensure-payment-intent';
 import { tdb } from '../config/tenant-context';
 import { getInvoiceEmailQueue } from '../config/queues';
+import { AppError } from '../middleware/error-handler';
 
 const router = Router();
 
@@ -66,6 +66,7 @@ const InvoiceWithItemsSchema = InvoiceSchema.extend({
   }),
   stripePublishableKey: z.string().optional(),
   connectedAccountId: z.string().optional(),
+  paymentUrl: z.string().optional(),
 }).openapi('InvoiceWithItems');
 
 const ListQuery = z.object({
@@ -169,11 +170,14 @@ registry.registerPath({
   method: 'post',
   path: '/api/invoices/{id}/send',
   tags: ['invoices'],
-  summary: 'Enqueue an email to the client',
+  summary: 'Enqueue an email to the client (skipped for seeded/example-domain invoices)',
   security: [{ bearerAuth: [] }, { orgIdHeader: [] }],
   request: { params: IdParam },
   responses: {
-    200: { description: 'Queued', content: { 'application/json': { schema: OneResponse } } },
+    200: {
+      description: 'Queued (or skipped with a warning for seeded/demo invoices)',
+      content: { 'application/json': { schema: OneResponse } },
+    },
     409: { description: 'Not open' },
   },
 });
@@ -209,7 +213,8 @@ function buildDetailPayload(
   invoice: ReturnType<typeof serializeInvoice>,
   lineItems: ReturnType<typeof serializeLineItem>[],
   client: { id: string; name: string; email: string | null },
-  connectedAccountId: string | null
+  connectedAccountId: string | null,
+  paymentToken: string | null = null
 ) {
   const payload: Record<string, unknown> = {
     ...invoice,
@@ -220,11 +225,13 @@ function buildDetailPayload(
   if (invoice.status !== 'open') {
     payload.stripeClientSecret = null;
   } else {
-    // status === 'open': surface the keys required to render <PaymentElement>
     if (env.STRIPE_PUBLISHABLE_KEY) {
       payload.stripePublishableKey = env.STRIPE_PUBLISHABLE_KEY;
     }
     if (connectedAccountId) payload.connectedAccountId = connectedAccountId;
+    if (paymentToken && env.FRONTEND_URL) {
+      payload.paymentUrl = `${env.FRONTEND_URL}/pay/${invoice.id}?token=${paymentToken}`;
+    }
   }
 
   return payload;
@@ -240,20 +247,14 @@ export async function handleList(
 export async function handleGet(id: string, t = tdb) {
   const { invoice, items, client } = await getInvoiceWithItems(id, t);
 
-  // Lazy PI: open invoices without a PaymentIntent get one created on first view.
   if (invoice.status === 'open' && !invoice.stripe_payment_intent_id) {
-    await ensurePaymentIntent(id, t);
+    const ensured = await ensurePaymentIntent(id, t);
+    invoice.stripe_payment_intent_id = ensured.paymentIntentId;
+    invoice.stripe_client_secret = ensured.clientSecret;
   }
 
-  // Re-read after the possible ensurePaymentIntent write so the response
-  // reflects the freshly-persisted client_secret.
-  const refreshed =
-    invoice.status === 'open' && !invoice.stripe_payment_intent_id
-      ? await getInvoiceWithItems(id, t)
-      : { invoice, items, client };
-
   let connectedAccountId: string | null = null;
-  if (refreshed.invoice.status === 'open') {
+  if (invoice.status === 'open') {
     const platform = (await t('platforms')
       .where({ type: 'stripe' })
       .select('external_account_id')
@@ -262,10 +263,11 @@ export async function handleGet(id: string, t = tdb) {
   }
   return {
     data: buildDetailPayload(
-      serializeInvoice(refreshed.invoice),
-      refreshed.items.map(serializeLineItem),
-      refreshed.client,
-      connectedAccountId
+      serializeInvoice(invoice),
+      items.map(serializeLineItem),
+      client,
+      connectedAccountId,
+      invoice.payment_token
     ),
   };
 }
@@ -296,16 +298,13 @@ export async function handleUpdate(id: string, body: z.infer<typeof UpdateBody>,
 
 export async function handleFinalize(id: string, orgId: string, t = tdb) {
   const { invoice, items, client } = await finalizeInvoice(id, orgId, t);
-  // PI is created lazily on first GET — don't create it here. That means the
-  // finalize response has no `stripe_client_secret` yet, which is fine:
-  // buildDetailPayload will null it out and the client will re-fetch via
-  // GET /api/invoices/:id to render the payment element.
   return {
     data: buildDetailPayload(
       serializeInvoice(invoice),
       items.map(serializeLineItem),
       client,
-      null
+      null,
+      invoice.payment_token
     ),
   };
 }
@@ -318,13 +317,51 @@ export async function handleDelete(id: string, t = tdb) {
   return { data: await deleteDraft(id, t) };
 }
 
-export async function handleSend(id: string, t = tdb) {
-  const invoice = await assertInvoiceSendable(id, t);
-  await getInvoiceEmailQueue().add('send', { invoiceId: id }, {
+const EXAMPLE_DOMAIN_RE = /@(?:[^@]+\.)?example(?:\.com|\.org|\.net)?$/i;
+
+type EnqueueSend = (invoiceId: string) => Promise<unknown>;
+
+const defaultEnqueueSend: EnqueueSend = (invoiceId) =>
+  getInvoiceEmailQueue().add('send', { invoiceId }, {
     attempts: 5,
     backoff: { type: 'exponential', delay: 10_000 },
   });
-  return { data: invoice };
+
+export async function handleSend(
+  id: string,
+  t = tdb,
+  enqueue: EnqueueSend = defaultEnqueueSend
+) {
+  const { invoice, client } = await getInvoiceWithItems(id, t);
+  if (invoice.status !== 'open') {
+    throw new AppError(409, 'Only open invoices can be sent');
+  }
+
+  const isSeeded = invoice.seeded_at != null;
+  const isExampleDomain = client.email != null && EXAMPLE_DOMAIN_RE.test(client.email);
+
+  if (isSeeded || isExampleDomain) {
+    await t('audit_log').insert({
+      source: 'invoice.send',
+      org_id: invoice.org_id,
+      event_type: 'invoice.email.skipped',
+      external_id: invoice.id,
+      status: 'skipped',
+      payload: {
+        reason: isSeeded ? 'seeded' : 'example_domain',
+        to: client.email,
+      },
+    });
+    return {
+      data: {
+        ...serializeInvoice(invoice),
+        warnings: ['Email skipped — demo/test invoice'],
+      },
+    };
+  }
+
+  await enqueue(id);
+  return { data: serializeInvoice(invoice) };
 }
 
 router.get(

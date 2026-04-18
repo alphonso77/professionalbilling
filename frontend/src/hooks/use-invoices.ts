@@ -97,7 +97,11 @@ export function useSendInvoice(id: string) {
   const { call } = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => call<Invoice>("POST", `/api/invoices/${id}/send`),
+    mutationFn: () =>
+      call<Invoice & { warnings?: string[] }>(
+        "POST",
+        `/api/invoices/${id}/send`,
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: DETAIL_KEY(id) });
     },

@@ -159,6 +159,11 @@ export interface InvoiceWithItems extends Invoice {
   client: { id: string; name: string; email: string | null };
   stripePublishableKey?: string;
   connectedAccountId?: string;
+  paymentUrl?: string;
+}
+
+export interface SendInvoiceResponse {
+  data: Invoice & { warnings?: string[] };
 }
 
 export interface PublicInvoicePayment {

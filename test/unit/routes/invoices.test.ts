@@ -4,6 +4,9 @@ import type { Knex } from 'knex';
 import {
   CreateInvoiceBody,
   UpdateInvoiceBody,
+  handleGet,
+  handleList,
+  handleSend,
 } from '../../../src/routes/invoices';
 import {
   createDraft,
@@ -604,6 +607,234 @@ describe('services/invoices — updateDraft + listInvoices', () => {
     const openC1 = await listInvoices({ status: 'open', clientId: 'c1' }, db as any);
     expect(openC1).to.have.length(1);
     expect(openC1[0].id).to.equal('b');
+  });
+});
+
+describe('routes/invoices — handleSend skip logic', () => {
+  it('skips email + writes audit_log for seeded invoices', async () => {
+    const db = makeMockDb();
+    seedOrg(db);
+    seedClient(db, 'client_1', 'org_1', 'real@customer.com');
+    db._seed('invoices', {
+      id: 'inv_s',
+      org_id: 'org_1',
+      client_id: 'client_1',
+      status: 'open',
+      seeded_at: '2026-04-18T00:00:00Z',
+      total_cents: 10_000,
+      subtotal_cents: 10_000,
+      payment_token: 'tok',
+    });
+
+    let enqueued = 0;
+    const res = await handleSend('inv_s', db as any, async () => {
+      enqueued += 1;
+    });
+    expect(enqueued).to.equal(0);
+    const body = res.data as { warnings?: string[] };
+    expect(body.warnings?.[0]).to.contain('skipped');
+    const audit = db._tables.audit_log;
+    expect(audit).to.have.length(1);
+    expect(audit[0]).to.include({
+      source: 'invoice.send',
+      event_type: 'invoice.email.skipped',
+      external_id: 'inv_s',
+      status: 'skipped',
+    });
+    expect((audit[0].payload as any).reason).to.equal('seeded');
+  });
+
+  it('skips email + writes audit_log for example-domain clients', async () => {
+    const db = makeMockDb();
+    seedOrg(db);
+    seedClient(db, 'client_1', 'org_1', 'bill@example.com');
+    db._seed('invoices', {
+      id: 'inv_e',
+      org_id: 'org_1',
+      client_id: 'client_1',
+      status: 'open',
+      seeded_at: null,
+      total_cents: 10_000,
+      subtotal_cents: 10_000,
+      payment_token: 'tok',
+    });
+
+    let enqueued = 0;
+    const res = await handleSend('inv_e', db as any, async () => {
+      enqueued += 1;
+    });
+    expect(enqueued).to.equal(0);
+    const body = res.data as { warnings?: string[] };
+    expect(body.warnings?.[0]).to.contain('skipped');
+    expect((db._tables.audit_log[0].payload as any).reason).to.equal('example_domain');
+  });
+
+  it('also skips for nested example subdomains like foo.example.com', async () => {
+    const db = makeMockDb();
+    seedOrg(db);
+    seedClient(db, 'client_1', 'org_1', 'user@foo.example.com');
+    db._seed('invoices', {
+      id: 'inv_e2',
+      org_id: 'org_1',
+      client_id: 'client_1',
+      status: 'open',
+      seeded_at: null,
+      total_cents: 10_000,
+      subtotal_cents: 10_000,
+      payment_token: 'tok',
+    });
+
+    let enqueued = 0;
+    await handleSend('inv_e2', db as any, async () => {
+      enqueued += 1;
+    });
+    expect(enqueued).to.equal(0);
+  });
+
+  it('enqueues for real clients (happy path) and does not write an audit_log row', async () => {
+    const db = makeMockDb();
+    seedOrg(db);
+    seedClient(db, 'client_1', 'org_1', 'real@customer.com');
+    db._seed('invoices', {
+      id: 'inv_ok',
+      org_id: 'org_1',
+      client_id: 'client_1',
+      status: 'open',
+      seeded_at: null,
+      total_cents: 10_000,
+      subtotal_cents: 10_000,
+      payment_token: 'tok',
+    });
+
+    let enqueued: string | null = null;
+    const res = await handleSend('inv_ok', db as any, async (invoiceId) => {
+      enqueued = invoiceId;
+    });
+    expect(enqueued).to.equal('inv_ok');
+    expect((res.data as { warnings?: string[] }).warnings).to.equal(undefined);
+    expect(db._tables.audit_log).to.have.length(0);
+  });
+
+  it('rejects non-open invoices with 409', async () => {
+    const db = makeMockDb();
+    seedOrg(db);
+    seedClient(db, 'client_1');
+    db._seed('invoices', {
+      id: 'inv_draft',
+      org_id: 'org_1',
+      client_id: 'client_1',
+      status: 'draft',
+    });
+
+    let caught: unknown;
+    try {
+      await handleSend('inv_draft', db as any, async () => {});
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).to.be.instanceOf(AppError);
+    expect((caught as AppError).statusCode).to.equal(409);
+  });
+});
+
+describe('routes/invoices — paymentUrl surfacing on detail', () => {
+  // env.FRONTEND_URL is validated once at module load and defaults to
+  // http://localhost:5173 when unset — that's what these tests expect.
+  const FE = 'http://localhost:5173';
+
+  function seedOpenInvoice(db: MockDb, id: string, token: string | null) {
+    seedOrg(db);
+    seedClient(db, 'client_1');
+    db._seed('invoices', {
+      id,
+      org_id: 'org_1',
+      client_id: 'client_1',
+      status: 'open',
+      number: '2026-0001',
+      total_cents: 10_000,
+      subtotal_cents: 10_000,
+      stripe_payment_intent_id: 'pi_existing',
+      stripe_client_secret: 'pi_existing_secret',
+      payment_token: token,
+    });
+  }
+
+  it('includes paymentUrl on an open invoice that has a payment_token', async () => {
+    const db = makeMockDb();
+    seedOpenInvoice(db, 'inv_1', 'tok_abc');
+    const res = await handleGet('inv_1', db as any);
+    const body = res.data as { paymentUrl?: string };
+    expect(body.paymentUrl).to.equal(`${FE}/pay/inv_1?token=tok_abc`);
+  });
+
+  it('omits paymentUrl on draft invoices', async () => {
+    const db = makeMockDb();
+    seedOrg(db);
+    seedClient(db, 'client_1');
+    db._seed('invoices', {
+      id: 'inv_draft',
+      org_id: 'org_1',
+      client_id: 'client_1',
+      status: 'draft',
+      payment_token: 'tok_xxx',
+      total_cents: 10_000,
+      subtotal_cents: 10_000,
+    });
+    const res = await handleGet('inv_draft', db as any);
+    expect((res.data as any).paymentUrl).to.equal(undefined);
+  });
+
+  it('omits paymentUrl on paid invoices', async () => {
+    const db = makeMockDb();
+    seedOrg(db);
+    seedClient(db, 'client_1');
+    db._seed('invoices', {
+      id: 'inv_paid',
+      org_id: 'org_1',
+      client_id: 'client_1',
+      status: 'paid',
+      payment_token: 'tok_xxx',
+      total_cents: 10_000,
+      subtotal_cents: 10_000,
+    });
+    const res = await handleGet('inv_paid', db as any);
+    expect((res.data as any).paymentUrl).to.equal(undefined);
+  });
+
+  it('omits paymentUrl on void invoices', async () => {
+    const db = makeMockDb();
+    seedOrg(db);
+    seedClient(db, 'client_1');
+    db._seed('invoices', {
+      id: 'inv_void',
+      org_id: 'org_1',
+      client_id: 'client_1',
+      status: 'void',
+      payment_token: 'tok_xxx',
+      total_cents: 10_000,
+      subtotal_cents: 10_000,
+    });
+    const res = await handleGet('inv_void', db as any);
+    expect((res.data as any).paymentUrl).to.equal(undefined);
+  });
+
+  it('list endpoint never includes paymentUrl (or any surrogate field)', async () => {
+    const db = makeMockDb();
+    seedOrg(db);
+    seedClient(db, 'client_1');
+    db._seed('invoices', {
+      id: 'inv_list',
+      org_id: 'org_1',
+      client_id: 'client_1',
+      status: 'open',
+      payment_token: 'tok_list',
+      total_cents: 10_000,
+      subtotal_cents: 10_000,
+    });
+    const res = await handleList({}, db as any);
+    for (const row of res.data) {
+      expect((row as any).paymentUrl).to.equal(undefined);
+    }
   });
 });
 

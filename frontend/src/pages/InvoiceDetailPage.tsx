@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Trash2, X } from "lucide-react";
+import { ArrowLeft, Copy, ExternalLink, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -121,14 +121,36 @@ export function InvoiceDetailPage() {
 
   const handleSend = async () => {
     try {
-      await send.mutateAsync();
+      const result = await send.mutateAsync();
       setEmailSent(true);
-      toast({ title: "Email queued" });
+      if (result.warnings?.length) {
+        toast({
+          variant: "warning",
+          title: "Email skipped",
+          description: result.warnings[0],
+        });
+      } else {
+        toast({ title: "Email queued" });
+      }
     } catch (err) {
       toast({
         variant: "destructive",
         title: "Could not send email",
         description: err instanceof ApiError ? err.message : "Unexpected error",
+      });
+    }
+  };
+
+  const handleCopyPaymentUrl = async () => {
+    if (!inv.paymentUrl) return;
+    try {
+      await navigator.clipboard.writeText(inv.paymentUrl);
+      toast({ title: "Payment link copied" });
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Could not copy link",
+        description: "Copy the URL from the address bar instead.",
       });
     }
   };
@@ -279,6 +301,37 @@ export function InvoiceDetailPage() {
           }
         />
       </div>
+
+      {inv.paymentUrl ? (
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Public payment page</div>
+              <div className="truncate text-xs text-[var(--color-muted-foreground)]">
+                {inv.paymentUrl}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCopyPaymentUrl}
+              >
+                <Copy className="h-4 w-4" /> Copy link
+              </Button>
+              <a
+                href={inv.paymentUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Button variant="outline" size="sm">
+                  <ExternalLink className="h-4 w-4" /> View payment page
+                </Button>
+              </a>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
