@@ -1,4 +1,3 @@
-import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { ClerkProvider } from "@clerk/clerk-react";
@@ -27,18 +26,18 @@ const queryClient = new QueryClient({
   },
 });
 
+// StrictMode intentionally double-invokes effects in dev. Clerk's <SignUp />
+// then issues two verification-email requests on first mount. Leave it off.
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <ThemeProvider>
-      <ClerkProvider publishableKey={PUBLISHABLE_KEY} afterSignOutUrl="/sign-in">
-        <QueryClientProvider client={queryClient}>
-          <BrowserRouter>
-            <ToastContextProvider>
-              <App />
-            </ToastContextProvider>
-          </BrowserRouter>
-        </QueryClientProvider>
-      </ClerkProvider>
-    </ThemeProvider>
-  </React.StrictMode>,
+  <ThemeProvider>
+    <ClerkProvider publishableKey={PUBLISHABLE_KEY} afterSignOutUrl="/sign-in">
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <ToastContextProvider>
+            <App />
+          </ToastContextProvider>
+        </BrowserRouter>
+      </QueryClientProvider>
+    </ClerkProvider>
+  </ThemeProvider>,
 );

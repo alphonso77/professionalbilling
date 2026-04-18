@@ -105,11 +105,29 @@ registry.registerPath({
   path: '/api/clients/{id}',
   tags: ['clients'],
   summary: 'Delete a client',
+  description:
+    'Plain delete refuses with 409 if the client has any invoices or time entries (FK RESTRICT on invoices.client_id would otherwise 500). Pass `?force=true` to cascade-delete invoices + time entries along with the client — only allowed when the client was created by the seed tool (`seeded_at IS NOT NULL`).',
   security: [{ bearerAuth: [] }, { orgIdHeader: [] }],
-  request: { params: z.object({ id: z.string().uuid() }) },
+  request: {
+    params: z.object({ id: z.string().uuid() }),
+    query: z.object({
+      force: z
+        .enum(['true', 'false'])
+        .optional()
+        .openapi({
+          description:
+            'Cascade-delete invoices and time entries referencing this client. Only allowed for seeded clients.',
+        }),
+    }),
+  },
   responses: {
     200: { description: 'Deleted', content: { 'application/json': { schema: DeleteResponse } } },
+    400: { description: 'force=true not allowed on non-seeded client (code: FORCE_NOT_ALLOWED)' },
     404: { description: 'Not found' },
+    409: {
+      description:
+        'Client has invoices or time entries; plain delete refused (code: CLIENT_HAS_HISTORY)',
+    },
   },
 });
 
@@ -177,8 +195,92 @@ export async function handleUpdate(req: AuthenticatedRequest) {
 
 export async function handleDelete(req: AuthenticatedRequest) {
   const id = z.string().uuid().parse(req.params.id);
+  const force = req.query.force === 'true';
+
+  const client = (await tdb('clients')
+    .where({ id })
+    .select('id', 'org_id', 'seeded_at')
+    .first()) as { id: string; org_id: string; seeded_at: string | null } | undefined;
+  if (!client) throw new AppError(404, 'Client not found');
+
+  if (force && !client.seeded_at) {
+    throw new AppError(
+      400,
+      'force=true is only allowed on seeded clients',
+      'FORCE_NOT_ALLOWED'
+    );
+  }
+
+  const invoiceRows = (await tdb('invoices').where({ client_id: id }).select('id')) as Array<{
+    id: string;
+  }>;
+  const timeEntryRows = (await tdb('time_entries')
+    .where({ client_id: id })
+    .select('id')) as Array<{ id: string }>;
+  const invoiceCount = invoiceRows.length;
+  const timeEntryCount = timeEntryRows.length;
+
+  if (!force && (invoiceCount > 0 || timeEntryCount > 0)) {
+    const parts: string[] = [];
+    if (invoiceCount > 0) {
+      parts.push(`${invoiceCount} ${invoiceCount === 1 ? 'invoice' : 'invoices'}`);
+    }
+    if (timeEntryCount > 0) {
+      parts.push(
+        `${timeEntryCount} ${timeEntryCount === 1 ? 'time entry' : 'time entries'}`
+      );
+    }
+    const suffix = client.seeded_at
+      ? ' Use the seed-removal flow or ?force=true to cascade-delete this demo client.'
+      : ' Delete them first.';
+    throw new AppError(
+      409,
+      `Client has ${parts.join(' and ')}.${suffix}`,
+      'CLIENT_HAS_HISTORY'
+    );
+  }
+
+  if (force) {
+    const invDeleted =
+      invoiceCount > 0 ? await tdb('invoices').where({ client_id: id }).del() : 0;
+    const teDeleted =
+      timeEntryCount > 0 ? await tdb('time_entries').where({ client_id: id }).del() : 0;
+
+    await tdb('audit_log').insert({
+      source: 'client.delete',
+      org_id: client.org_id,
+      event_type: 'client.cascade.invoices',
+      external_id: id,
+      status: 'processed',
+      payload: { invoice_ids: invoiceRows.map((r) => r.id), count: Number(invDeleted) },
+    });
+    await tdb('audit_log').insert({
+      source: 'client.delete',
+      org_id: client.org_id,
+      event_type: 'client.cascade.time_entries',
+      external_id: id,
+      status: 'processed',
+      payload: {
+        time_entry_ids: timeEntryRows.map((r) => r.id),
+        count: Number(teDeleted),
+      },
+    });
+  }
+
   const deleted = await tdb('clients').where({ id }).del();
   if (!deleted) throw new AppError(404, 'Client not found');
+
+  if (force) {
+    await tdb('audit_log').insert({
+      source: 'client.delete',
+      org_id: client.org_id,
+      event_type: 'client.force_delete',
+      external_id: id,
+      status: 'processed',
+      payload: { seeded: true },
+    });
+  }
+
   return { data: { id } };
 }
 

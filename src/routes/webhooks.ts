@@ -118,6 +118,54 @@ export async function handleClerkEvent(
         break;
       }
 
+      case 'user.deleted': {
+        const data = evt.data as { id: string };
+        externalId = data.id ?? null;
+
+        const already = await database('audit_log')
+          .where({ source: 'clerk', event_type: eventType, external_id: data.id, status: 'processed' })
+          .select('id')
+          .first();
+        if (already) {
+          logger.info(`Clerk user.deleted: ${data.id} (already processed, skipping)`);
+          break;
+        }
+
+        const user = await database('users')
+          .where({ clerk_user_id: data.id })
+          .select('id')
+          .first();
+
+        if (!user) {
+          await logAudit(
+            {
+              source: 'clerk',
+              event_type: eventType,
+              external_id: data.id ?? null,
+              payload: evt.data,
+              status: 'ignored',
+            },
+            database
+          );
+          logger.info(`Clerk user.deleted: ${data.id} (no matching user)`);
+          break;
+        }
+
+        const deleted = await database('users').where({ id: user.id }).del();
+        await logAudit(
+          {
+            source: 'clerk',
+            event_type: eventType,
+            external_id: data.id ?? null,
+            payload: evt.data,
+            status: 'processed',
+          },
+          database
+        );
+        logger.info(`Clerk user.deleted: ${data.id}`, { rowsDeleted: deleted });
+        break;
+      }
+
       case 'organizationMembership.created': {
         const data = evt.data as {
           organization: { id: string; name: string };

@@ -231,12 +231,14 @@ export async function removeSeeded(orgId: string, t: Tdb): Promise<SeedSummary> 
   // Capture which years the seeded invoices span BEFORE deleting — we need
   // this to reset the per-year sequence counter so real invoices don't
   // inherit gaps left by the seed's consumed numbers.
-  const seededNumbers = (await t('invoices')
+  const seededInvoices = (await t('invoices')
     .where({ org_id: orgId })
     .whereNotNull('seeded_at')
-    .select('number')) as Array<{ number: string | null }>;
+    .select('id', 'number')) as Array<{ id: string; number: string | null }>;
   const affectedYears = new Set<number>();
-  for (const { number } of seededNumbers) {
+  const seededInvoiceIds: string[] = [];
+  for (const { id, number } of seededInvoices) {
+    seededInvoiceIds.push(id);
     const m = number?.match(/^(\d{4})-\d+$/);
     if (m) affectedYears.add(Number(m[1]));
   }
@@ -249,6 +251,18 @@ export async function removeSeeded(orgId: string, t: Tdb): Promise<SeedSummary> 
     .where({ org_id: orgId })
     .whereNotNull('seeded_at')
     .del()) as unknown as number;
+
+  // Purge audit_log rows that reference the now-deleted invoices. Sources
+  // scoped to invoice IDs (external_id = invoice.id): invoice.send,
+  // invoice-email. stripe.worker keys by event id, so it's intentionally
+  // left alone.
+  if (seededInvoiceIds.length > 0) {
+    await t('audit_log')
+      .where({ org_id: orgId })
+      .whereIn('source', ['invoice.send', 'invoice-email'])
+      .whereIn('external_id', seededInvoiceIds)
+      .del();
+  }
 
   if (affectedYears.size > 0) {
     const remaining = (await t('invoices')

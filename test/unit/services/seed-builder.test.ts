@@ -11,6 +11,7 @@ function makeMockDb() {
     invoice_sequences: [],
     clients: [],
     time_entries: [],
+    audit_log: [],
   };
   let idCounter = 0;
 

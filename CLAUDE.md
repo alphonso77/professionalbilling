@@ -71,12 +71,39 @@ Single dialog with three input modes (`frontend/src/pages/TimeEntriesPage.tsx`):
 Status flow: `draft` → `open` → `paid` (or `void` from any pre-paid state). Line items are mutable only while `draft`; `open` is immutable except for the terminal transitions.
 
 - **Numbering:** `YYYY-NNNN`, per-org sequential, resets per calendar year. Allocated at finalize time via `invoice_sequences` with `SELECT … FOR UPDATE` inside the tenant transaction — never generate numbers client-side or out-of-band.
-- **Finalize (`POST /api/invoices/:id/finalize`):** atomically assigns the number, creates a Stripe PaymentIntent on the connected account (`{stripeAccount: orgStripeAccountId}`), generates a random `payment_token` (UUID), persists `stripe_payment_intent_id` + `stripe_client_secret` + `payment_token`. Fails 424 if the org has no Stripe platform. Fails 400 if total ≤ 0 (avoids stranding a consumed sequence number on a PI-create failure).
+- **Finalize (`POST /api/invoices/:id/finalize`):** atomically assigns the `YYYY-NNNN` number, transitions status to `open`, and generates a random `payment_token` (UUID). Does NOT create the Stripe PaymentIntent — PI creation is lazy (see below). Fails 400 if total ≤ 0 (avoids stranding a consumed sequence number).
+- **Lazy PaymentIntent (`src/services/ensure-payment-intent.ts`):** first view of an `open` invoice (authenticated `GET /api/invoices/:id` or public `GET /api/public/invoices/:id`) creates the PI on the connected account if missing; persists `stripe_payment_intent_id` + `stripe_client_secret`. Idempotent via the persisted columns. Uses `SELECT … FOR UPDATE` to serialize concurrent ensures. The public-pay path wraps the call in `db.transaction(...)` because the raw `db` doesn't hold a txn otherwise. 503 if the org has no Stripe platform connected.
 - **Payment reconciliation:** `payment_intent.succeeded` webhook looks up the invoice by `stripe_payment_intent_id` (raw `db` in the worker, RLS bypassed) and sets `status='paid'` + `paid_at=now()`. Idempotent via the existing audit-log check.
 - **Email (`POST /api/invoices/:id/send`):** enqueues `invoice-email` (BullMQ). Worker (`src/workers/invoice-email.ts`) uses Resend, builds the public payment URL server-side as `${FRONTEND_URL}/pay/${id}?token=${payment_token}`. The send endpoint itself skips delivery (audit-logged, returns `warnings: ['Email skipped — demo/test invoice']`) for any invoice that is seeded (`invoices.seeded_at IS NOT NULL`) or whose client email is on an RFC 2606 reserved `*.example.{com,org,net}` domain — avoids sending real email to demo/test clients.
 - **Field-visibility rules on authenticated responses:** list never includes `stripe_client_secret`, `stripe_publishable_key`, `connected_account_id`, `payment_token`, or `paymentUrl`; detail includes `stripe_client_secret` + `stripe_publishable_key` + `connected_account_id` only when `status='open'`. `payment_token` is never returned on any authenticated response, but detail does return `paymentUrl` (which embeds the token) when `status='open'` — so the org user can click through to the public pay page directly.
 - **Unbilled time entries:** `GET /api/time-entries?unbilled=true&clientId=…` excludes entries referenced by any non-`void` invoice line item (computed join, no denormalized flag).
 - **Seed / seeded-invoice PI gating:** `POST /api/seed` and `POST /api/seed/reseed` require Stripe test mode (`sk_test_*` / `rk_test_*`) — they return 400 `SEED_REQUIRES_TEST_MODE` otherwise. Lazy PI creation on an invoice with `seeded_at IS NOT NULL` also requires test mode; authenticated detail swallows the error and sets `paymentUnavailableReason: 'seed_requires_test_mode'` on the payload (no `stripeClientSecret`), and public-pay surfaces a 503. `DELETE /api/seed` is unguarded so cleanup is always possible.
+
+## Admin + easter egg
+
+Two boolean flags on `users`:
+- `is_admin` — gates `/admin/users` (frontend) and `/api/admin/*` (backend via `requireAdmin` middleware, which loads `users.is_admin` via `tdb`). Founder bootstrap via `datastore/seeds/{development,production}/01_admin_bootstrap.js` — idempotent UPDATE setting `is_admin = true` for `founder@fratellisoftware.com`. Run `npm run seed` once after the founder signs up. Admins can toggle `is_admin` and `easter_egg_enabled` on any user in their org via `PATCH /api/admin/users/:id`. Last-admin guard returns 400 `LAST_ADMIN` to prevent org lockout.
+- `easter_egg_enabled` — renders a pure-CSS π in the header cluster (`opacity-0 hover:opacity-40 transition`). Click opens the Seed modal. Server-side `requireEasterEgg` middleware mirrors the visibility gate.
+
+`AppError` supports an optional `code` (3rd constructor arg). When set, the global error handler emits `{ error: { message, code } }`; otherwise it emits the legacy `{ error: message }` shape. New gates (`requireAdmin`, `requireEasterEgg`) use codes; older throw sites still use the flat shape — both coexist.
+
+## Demo seed
+
+Easter-egg-gated (`src/routes/seed.ts`, `src/services/seed-builder.ts`). Inserts 4 clients + 8–15 time entries each + 3 open invoices (one client left unbilled), all flagged `seeded_at = NOW()`. Deterministic per org — `mulberry32` seeded from the org id, so repeat seeds produce identical payloads.
+
+- `POST /api/seed` — 409 if any seeded row exists. 400 `SEED_REQUIRES_TEST_MODE` if Stripe isn't in test mode.
+- `POST /api/seed/reseed` — `removeSeeded` + `run`. Same test-mode guard.
+- `DELETE /api/seed` — `removeSeeded` only. **Unguarded** by Stripe mode so cleanup always works.
+
+**No Stripe API calls during seed.** Invoices are created without a PaymentIntent; the lazy-PI path creates one on first view (subject to the test-mode guard on seeded invoices in `ensurePaymentIntent`).
+
+**`removeSeeded` semantics:**
+- Seeded invoices + their line items (CASCADE) + seeded time entries: deleted.
+- Seeded clients: deleted if nothing references them; **adopted** (seeded_at nulled) if any non-seeded invoice or time entry still points at them, so the user's real work survives.
+- `invoice_sequences.next_seq` is rewound per affected year to `max(remaining_seq) + 1` (or 1 if none remain). Real invoices are never renumbered — if a gap opens mid-year, the next real invoice fills the freed number.
+- Return shape: `{ clients, time_entries, invoices, adopted }`. Frontend toast mentions adoption count when non-zero.
+
+**Stripe test-mode check** (`src/utils/stripe-mode.ts`): `isStripeTestMode()` returns true iff `STRIPE_SECRET_KEY` matches `/^(sk|rk)_test_/`. Stripe Connect inherits mode from the platform key, so this single check is authoritative — no mixed-mode scenario.
 
 ## Public (unauthenticated) routes
 

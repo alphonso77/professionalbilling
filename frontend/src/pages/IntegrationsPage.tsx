@@ -34,6 +34,7 @@ export function IntegrationsPage() {
   const disconnect = useDisconnectStripe();
   const [searchParams, setSearchParams] = useSearchParams();
   const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const [redirecting, setRedirecting] = React.useState(false);
   const { toast } = useToast();
 
   React.useEffect(() => {
@@ -56,6 +57,7 @@ export function IntegrationsPage() {
   const handleConnect = async () => {
     try {
       const res = await authorize.mutateAsync();
+      setRedirecting(true);
       window.location.href = res.url;
     } catch (err) {
       toast({
@@ -125,8 +127,13 @@ export function IntegrationsPage() {
               </Button>
             </>
           ) : (
-            <Button onClick={handleConnect} disabled={authorize.isPending}>
-              {authorize.isPending ? "Redirecting…" : "Connect Stripe"}
+            <Button
+              onClick={handleConnect}
+              disabled={authorize.isPending || redirecting}
+            >
+              {authorize.isPending || redirecting
+                ? "Redirecting…"
+                : "Connect Stripe"}
             </Button>
           )}
         </CardContent>
@@ -137,8 +144,8 @@ export function IntegrationsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Disconnect Stripe?</AlertDialogTitle>
             <AlertDialogDescription>
-              You'll need to re-authorize Stripe to receive payments and webhook
-              events. This does not cancel existing invoices on Stripe's side.
+              New invoices will not be collectible until you reconnect.
+              Existing invoices remain intact.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
