@@ -12,6 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { TutorialStartButton } from "@/components/TutorialStartButton";
 import { useMe, useUpdateMe } from "@/hooks/use-me";
 import { useToast } from "@/hooks/use-toast";
 import { ApiError } from "@/lib/api";
@@ -104,6 +105,18 @@ export function SettingsPage() {
               {updateMe.isPending ? "Saving…" : "Save"}
             </Button>
           </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Help &amp; Onboarding</CardTitle>
+          <CardDescription>
+            Replay the welcome tour to refresh the app's main sections.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <TutorialStartButton />
         </CardContent>
       </Card>
     </div>

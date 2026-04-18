@@ -200,3 +200,35 @@ export type SeedSummary = {
   time_entries: number;
   invoices: number;
 };
+
+export type FeedbackType = "bug" | "feature" | "ui" | "other";
+export type FeedbackStatus =
+  | "pending"
+  | "acknowledged"
+  | "clarification_requested"
+  | "resolved";
+
+export type FeedbackRow = {
+  id: string;
+  org_id: string;
+  user_id: string;
+  type: FeedbackType;
+  subject: string;
+  body: string;
+  status: FeedbackStatus;
+  admin_note: string | null;
+  created_at: string;
+  updated_at: string;
+  submitter_email?: string | null;
+};
+
+export type CreateFeedbackInput = {
+  type: FeedbackType;
+  subject: string;
+  body: string;
+};
+
+export type UpdateFeedbackInput = {
+  status?: FeedbackStatus;
+  admin_note?: string | null;
+};

@@ -12,35 +12,29 @@
 * seed includes clients, time entries, and unpaid invoices
 * lazy Stripe PaymentIntent — no Stripe API calls during seed; PI created on first view
 
+### Phase 2A — Lifecycle Hygiene (completed 2026-04-18)
+
+* client delete 500 bug fixed — 409 `CLIENT_HAS_HISTORY` for non-seeded with history; `?force=true` cascade for seeded-only (400 `FORCE_NOT_ALLOWED` otherwise); symmetric `audit_log` purge on cascade
+* Stripe disconnect UI wired (backend already existed)
+* connect button stays disabled through OAuth redirect
+* double-email signup bug fixed via `ClerkWithRouter` wrapper delegating `routerPush`/`routerReplace` to React Router (StrictMode removal alone wasn't sufficient)
+* Clerk `user.deleted` webhook handler added with audit-log idempotency
+* `removeSeeded` rewritten: cascade-deletes ALL descendants of seeded clients regardless of their own `seeded_at` — kills the "two Acme clients" reseed bug; `adopted` field dropped from return shape
+
 ## In Progress
 
-### Phase 2A — Lifecycle Hygiene (started 2026-04-18)
+### Phase 2D — Onboarding tutorial
 
-* client delete 500 bug
-    - clients → acme corp → delete results in 500 error toast
-    - seeded client with a voided invoice; FK RESTRICT on `invoices.client_id` blocks delete
-    - fix: 409 `CLIENT_HAS_HISTORY` for non-seeded; `?force=true` cascade for seeded-only
-    - `removeSeeded` should also clean orphaned `audit_log` rows
-* Stripe disconnect UI
-    - backend already exists (`DELETE /api/platforms/:id`) — only need to wire the button + confirm dialog
-    - should remove the connected account from Stripe + delete DB rows (backend does both)
-* connect button re-enable bug
-    - clicking 'connect stripe' briefly re-enables the button before navigating to Stripe OAuth — users can double-click
-* double-email signup bug
-    - verification email sent twice on signup
-    - same bug IntegraSentry had — React StrictMode double-render causing Clerk to double-fire
-* Clerk `user.deleted` webhook
-    - `organization.deleted` + `organizationMembership.deleted` already handled
-    - only `user.deleted` is missing; add handler + idempotent audit-log check
+* new-user tutorial with skip + replay buttons
+* use IntegraSentry implementation as the model
 
-### Phase 2A - UAT Testing Results
+### Phase 2E — Feedback form, UI Enhancements
 
-* deleted seed data (no errors), attempted to delete ACme client (got a message saying delete invoice first)
-    - navigated to invoice, UI doesn't have a delete invoice button that I could see
-    - does that land in a phase 2b ? or was it a miss?
-* two emails still received on sign up
-    - if it makes things easier, search the commit history in IntegraSentry
-    - we had this very same bug, maybe it's the same thing happening
+* add a nice favicon (maybe generate from a relevant emoji matching the billing theme)
+* generic form capturing: bug reports, feature requests, UI feedback
+* prominent 'feedback' link in the main menu
+* feedback goes to our DB, surfaced in the admin area
+* optional: user-side area showing their submitted feedback + status (pending, acknowledged, clarification requested)
 
 ## Pending
 
@@ -57,18 +51,6 @@
 * specify which date invoices go out
 * invoices automatically created from un-invoiced time logs
 * config at user level, with client-specific overrides
-
-### Phase 2D — Onboarding tutorial
-
-* new-user tutorial with skip + replay buttons
-* use IntegraSentry implementation as the model
-
-### Phase 2E — Feedback form
-
-* generic form capturing: bug reports, feature requests, UI feedback
-* prominent 'feedback' link in the main menu
-* feedback goes to our DB, surfaced in the admin area
-* optional: user-side area showing their submitted feedback + status (pending, acknowledged, clarification requested)
 
 ## Phase 3
 

@@ -7,6 +7,7 @@ import {
   FileText,
   LayoutDashboard,
   Bell,
+  MessageCircle,
   Plug,
   Settings,
   ShieldCheck,
@@ -21,21 +22,23 @@ type NavItem = {
   to: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+  tutorialTarget?: string;
 };
 
 const NAV: NavItem[] = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/time", label: "Time", icon: Clock },
-  { to: "/clients", label: "Clients", icon: Users },
-  { to: "/invoices", label: "Invoices", icon: FileText },
+  { to: "/time", label: "Time", icon: Clock, tutorialTarget: "nav-time" },
+  { to: "/clients", label: "Clients", icon: Users, tutorialTarget: "nav-clients" },
+  { to: "/invoices", label: "Invoices", icon: FileText, tutorialTarget: "nav-invoices" },
   { to: "/alerts", label: "Alerts", icon: Bell },
   { to: "/settings/integrations", label: "Integrations", icon: Plug },
-  { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/settings", label: "Settings", icon: Settings, tutorialTarget: "nav-settings" },
+  { to: "/feedback", label: "Feedback", icon: MessageCircle },
   { to: "/docs", label: "Docs", icon: BookOpen },
 ];
 
 const ADMIN_NAV: NavItem = {
-  to: "/admin/users",
+  to: "/admin",
   label: "Admin",
   icon: ShieldCheck,
 };
@@ -46,7 +49,10 @@ export function AppShell() {
   return (
     <div className="flex h-full min-h-screen bg-[var(--color-background)] text-[var(--color-foreground)]">
       <aside className="hidden w-60 shrink-0 border-r border-[var(--color-border)] bg-[var(--color-card)] md:flex md:flex-col">
-        <div className="flex h-14 items-center gap-2 px-4 border-b border-[var(--color-border)]">
+        <div
+          data-tutorial-target="header-logo"
+          className="flex h-14 items-center gap-2 px-4 border-b border-[var(--color-border)]"
+        >
           <Briefcase className="h-5 w-5 text-[var(--color-primary)]" />
           <span className="font-semibold tracking-tight">
             Professional Billing
@@ -60,6 +66,7 @@ export function AppShell() {
                 key={item.to}
                 to={item.to}
                 end={item.to === "/"}
+                data-tutorial-target={item.tutorialTarget}
                 className={({ isActive }) =>
                   cn(
                     "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",

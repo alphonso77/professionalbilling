@@ -26,10 +26,37 @@ const UpdateAdminUserBody = z
   })
   .openapi('UpdateAdminUserBody');
 
+const AdminFeedbackSchema = z
+  .object({
+    id: z.string().uuid(),
+    org_id: z.string().uuid(),
+    user_id: z.string().uuid(),
+    type: z.enum(['bug', 'feature', 'ui', 'other']),
+    subject: z.string(),
+    body: z.string(),
+    status: z.enum(['pending', 'acknowledged', 'clarification_requested', 'resolved']),
+    admin_note: z.string().nullable(),
+    created_at: z.string(),
+    updated_at: z.string(),
+    submitter_email: z.string().email().nullable(),
+  })
+  .openapi('AdminFeedbackRow');
+
+const UpdateAdminFeedbackBody = z
+  .object({
+    status: z
+      .enum(['pending', 'acknowledged', 'clarification_requested', 'resolved'])
+      .optional(),
+    admin_note: z.string().nullable().optional(),
+  })
+  .openapi('UpdateAdminFeedbackBody');
+
 const IdParam = z.object({ id: z.string().uuid() });
 
 const ListResponse = z.object({ data: z.array(AdminUserSchema) });
 const OneResponse = z.object({ data: AdminUserSchema });
+const AdminFeedbackListResponse = z.object({ data: z.array(AdminFeedbackSchema) });
+const AdminFeedbackOneResponse = z.object({ data: AdminFeedbackSchema });
 
 const ADMIN_USER_COLUMNS = [
   'id',
@@ -38,6 +65,20 @@ const ADMIN_USER_COLUMNS = [
   'is_admin',
   'easter_egg_enabled',
   'created_at',
+];
+
+const ADMIN_FEEDBACK_SELECT = [
+  'feedback.id as id',
+  'feedback.org_id as org_id',
+  'feedback.user_id as user_id',
+  'feedback.type as type',
+  'feedback.subject as subject',
+  'feedback.body as body',
+  'feedback.status as status',
+  'feedback.admin_note as admin_note',
+  'feedback.created_at as created_at',
+  'feedback.updated_at as updated_at',
+  'users.email as submitter_email',
 ];
 
 registry.registerPath({
@@ -65,6 +106,42 @@ registry.registerPath({
   responses: {
     200: { description: 'Updated', content: { 'application/json': { schema: OneResponse } } },
     400: { description: 'Validation error / last admin' },
+    403: { description: 'Not an admin' },
+    404: { description: 'Not found' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/admin/feedback',
+  tags: ['admin'],
+  summary: 'List feedback for the current org (admin only)',
+  security: [{ bearerAuth: [] }, { orgIdHeader: [] }],
+  responses: {
+    200: {
+      description: 'Feedback',
+      content: { 'application/json': { schema: AdminFeedbackListResponse } },
+    },
+    403: { description: 'Not an admin' },
+  },
+});
+
+registry.registerPath({
+  method: 'patch',
+  path: '/api/admin/feedback/{id}',
+  tags: ['admin'],
+  summary: 'Update feedback status / admin note (admin only)',
+  security: [{ bearerAuth: [] }, { orgIdHeader: [] }],
+  request: {
+    params: IdParam,
+    body: { content: { 'application/json': { schema: UpdateAdminFeedbackBody } } },
+  },
+  responses: {
+    200: {
+      description: 'Updated',
+      content: { 'application/json': { schema: AdminFeedbackOneResponse } },
+    },
+    400: { description: 'Validation error' },
     403: { description: 'Not an admin' },
     404: { description: 'Not found' },
   },
@@ -116,6 +193,43 @@ export async function handleUpdate(req: AuthenticatedRequest) {
   return { data: rows[0] };
 }
 
+export async function handleFeedbackList() {
+  const rows = await tdb('feedback')
+    .leftJoin('users', 'users.id', 'feedback.user_id')
+    .select(ADMIN_FEEDBACK_SELECT)
+    .orderBy('feedback.created_at', 'desc');
+  return { data: rows };
+}
+
+export async function handleFeedbackUpdate(req: AuthenticatedRequest) {
+  const { id } = IdParam.parse(req.params);
+  const body = UpdateAdminFeedbackBody.parse(req.body);
+
+  const patch: Record<string, unknown> = {};
+  if ('status' in body) patch.status = body.status;
+  if ('admin_note' in body) patch.admin_note = body.admin_note;
+
+  if (Object.keys(patch).length === 0) {
+    const row = await tdb('feedback')
+      .leftJoin('users', 'users.id', 'feedback.user_id')
+      .where('feedback.id', id)
+      .select(ADMIN_FEEDBACK_SELECT)
+      .first();
+    if (!row) throw new AppError(404, 'Feedback not found');
+    return { data: row };
+  }
+
+  const updated = await tdb('feedback').where({ id }).update(patch);
+  if (!updated) throw new AppError(404, 'Feedback not found');
+
+  const row = await tdb('feedback')
+    .leftJoin('users', 'users.id', 'feedback.user_id')
+    .where('feedback.id', id)
+    .select(ADMIN_FEEDBACK_SELECT)
+    .first();
+  return { data: row };
+}
+
 router.get(
   '/users',
   requireAdmin(async (_req, res) => {
@@ -130,5 +244,24 @@ router.patch(
   })
 );
 
+router.get(
+  '/feedback',
+  requireAdmin(async (_req, res) => {
+    res.json(await handleFeedbackList());
+  })
+);
+
+router.patch(
+  '/feedback/:id',
+  requireAdmin(async (req, res) => {
+    res.json(await handleFeedbackUpdate(req));
+  })
+);
+
 export default router;
-export { UpdateAdminUserBody, AdminUserSchema };
+export {
+  UpdateAdminUserBody,
+  AdminUserSchema,
+  UpdateAdminFeedbackBody,
+  AdminFeedbackSchema,
+};

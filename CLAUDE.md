@@ -105,6 +105,12 @@ Easter-egg-gated (`src/routes/seed.ts`, `src/services/seed-builder.ts`). Inserts
 
 **Stripe test-mode check** (`src/utils/stripe-mode.ts`): `isStripeTestMode()` returns true iff `STRIPE_SECRET_KEY` matches `/^(sk|rk)_test_/`. Stripe Connect inherits mode from the platform key, so this single check is authoritative — no mixed-mode scenario.
 
+## Clients
+
+- `DELETE /api/clients/:id` refuses with `409 CLIENT_HAS_HISTORY` if the client has any invoices or time entries — `invoices.client_id` is `ON DELETE RESTRICT`, so unguarded delete would 500. Body: `{ error: { message, code: 'CLIENT_HAS_HISTORY' } }` with counts in the message.
+- `?force=true` cascades (deletes invoices + time_entries + client, and purges the deleted invoices' `audit_log` rows in `invoice.send` / `invoice-email` sources) — but ONLY for seeded clients (`seeded_at IS NOT NULL`). Non-seeded + force → `400 FORCE_NOT_ALLOWED`. Mirrors `removeSeeded`'s cleanup policy.
+- There is intentionally **no invoice-delete UI** for non-seeded invoices. `void` is the terminal transition for unwanted open invoices; paid invoices stay forever. Clients that accumulate real history cannot be deleted — that's the immutable-record contract real customers depend on.
+
 ## Public (unauthenticated) routes
 
 Namespace: `/api/public/*`. Mounted **before** `tenantScope` in `server.ts`. Uses raw `db` — RLS is bypassed on purpose because the auth is a token carried in the URL, not a Clerk session.
@@ -133,6 +139,10 @@ Platform-level pattern (one endpoint for all connected accounts):
 - Response envelope: `{ data: ... }`; warnings (if any) live *inside* `data`
 - Webhooks (Clerk, Stripe) are idempotent — all writes go through `audit_log` regardless of outcome
 - OAuth credentials encrypted AES-256-GCM as `(credentials_encrypted, credentials_iv, credentials_tag)` bytea triplet; key from `ENCRYPTION_KEY` (64 hex chars)
+
+## Clerk frontend integration
+
+`ClerkProvider` is wrapped by a local `ClerkWithRouter` component in `frontend/src/main.tsx` that reads `useNavigate()` and feeds it to ClerkProvider via `routerPush` + `routerReplace`. **This wiring is load-bearing** — without it, Clerk falls back to its own internal router and `<SignUp />` re-mounts on the verification-step transition, firing the verification email twice. `BrowserRouter` must sit OUTSIDE `ClerkProvider`. Do not reintroduce `<React.StrictMode>` at the root without first confirming the double-email bug doesn't return (StrictMode was the first, incorrect fix attempt).
 
 ## Required env vars (production)
 
