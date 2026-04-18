@@ -98,10 +98,10 @@ Easter-egg-gated (`src/routes/seed.ts`, `src/services/seed-builder.ts`). Inserts
 **No Stripe API calls during seed.** Invoices are created without a PaymentIntent; the lazy-PI path creates one on first view (subject to the test-mode guard on seeded invoices in `ensurePaymentIntent`).
 
 **`removeSeeded` semantics:**
-- Seeded invoices + their line items (CASCADE) + seeded time entries: deleted.
-- Seeded clients: deleted if nothing references them; **adopted** (seeded_at nulled) if any non-seeded invoice or time entry still points at them, so the user's real work survives.
+- Cascade-delete every invoice and time_entry attached to a seeded client (seeded or not), then the seeded clients themselves. Line items cascade via existing FK. The seed modal is a demo surface, so ad-hoc user edits against seeded clients are NOT preserved — keeping them caused duplicate clients on reseed cycles.
 - `invoice_sequences.next_seq` is rewound per affected year to `max(remaining_seq) + 1` (or 1 if none remain). Real invoices are never renumbered — if a gap opens mid-year, the next real invoice fills the freed number.
-- Return shape: `{ clients, time_entries, invoices, adopted }`. Frontend toast mentions adoption count when non-zero.
+- Orphaned `audit_log` rows whose `external_id` references a deleted invoice (`source IN ('invoice.send','invoice-email')`) are purged inside the same transaction.
+- Return shape: `{ clients, time_entries, invoices }`.
 
 **Stripe test-mode check** (`src/utils/stripe-mode.ts`): `isStripeTestMode()` returns true iff `STRIPE_SECRET_KEY` matches `/^(sk|rk)_test_/`. Stripe Connect inherits mode from the platform key, so this single check is authoritative — no mixed-mode scenario.
 

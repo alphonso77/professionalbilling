@@ -9,7 +9,6 @@ export interface SeedSummary {
   clients: number;
   time_entries: number;
   invoices: number;
-  adopted: number;
 }
 
 interface ClientSpec {
@@ -213,54 +212,66 @@ export async function run(orgId: string, t: Tdb): Promise<SeedSummary> {
     clients: clientCount,
     time_entries: entryCount,
     invoices: invoiceCount,
-    adopted: 0,
   };
 }
 
 /**
- * Delete seeded rows (seeded_at IS NOT NULL) in the caller's org. If a
- * seeded client still has any non-seeded invoice or time_entry pointing at
- * it (the user booked real work against a demo client), adopt the client
- * instead of deleting — clear seeded_at so it becomes a normal row.
+ * Delete all demo data belonging to the caller's org. Every invoice and
+ * time_entry that references a seeded client is removed — seeded or not —
+ * along with the seeded clients themselves. The seed/easter-egg modal is a
+ * demo surface, not a production data surface; preserving ad-hoc user edits
+ * against demo clients caused duplicate "Acme Corp" rows on reseed cycles.
  *
- * Note: a subsequent POST /api/seed will re-insert a fresh "Acme Corp"
- * alongside any adopted one (no unique constraint on clients.name). v1
- * caveat — the user can delete the duplicate manually.
+ * Guardrails that stay in place: Stripe test mode, easter-egg gate,
+ * `clients.seeded_at IS NOT NULL`, and org scoping.
  */
 export async function removeSeeded(orgId: string, t: Tdb): Promise<SeedSummary> {
-  // Capture which years the seeded invoices span BEFORE deleting — we need
-  // this to reset the per-year sequence counter so real invoices don't
-  // inherit gaps left by the seed's consumed numbers.
-  const seededInvoices = (await t('invoices')
+  const seededClients = (await t('clients')
     .where({ org_id: orgId })
     .whereNotNull('seeded_at')
+    .select('id')) as Array<{ id: string }>;
+  const clientIds = seededClients.map((c) => c.id);
+
+  if (clientIds.length === 0) {
+    return { clients: 0, time_entries: 0, invoices: 0 };
+  }
+
+  // Capture every invoice (seeded or not) attached to a seeded client, plus
+  // its year from the YYYY-NNNN number, so we can rewind per-year sequences
+  // after the delete and purge audit_log entries keyed on invoice.id.
+  const invoicesToDelete = (await t('invoices')
+    .where({ org_id: orgId })
+    .whereIn('client_id', clientIds)
     .select('id', 'number')) as Array<{ id: string; number: string | null }>;
   const affectedYears = new Set<number>();
-  const seededInvoiceIds: string[] = [];
-  for (const { id, number } of seededInvoices) {
-    seededInvoiceIds.push(id);
+  const invoiceIds: string[] = [];
+  for (const { id, number } of invoicesToDelete) {
+    invoiceIds.push(id);
     const m = number?.match(/^(\d{4})-\d+$/);
     if (m) affectedYears.add(Number(m[1]));
   }
 
-  const invoices = (await t('invoices')
-    .where({ org_id: orgId })
-    .whereNotNull('seeded_at')
-    .del()) as unknown as number;
+  const invoices =
+    invoiceIds.length > 0
+      ? ((await t('invoices')
+          .where({ org_id: orgId })
+          .whereIn('client_id', clientIds)
+          .del()) as unknown as number)
+      : 0;
   const timeEntries = (await t('time_entries')
     .where({ org_id: orgId })
-    .whereNotNull('seeded_at')
+    .whereIn('client_id', clientIds)
     .del()) as unknown as number;
 
   // Purge audit_log rows that reference the now-deleted invoices. Sources
   // scoped to invoice IDs (external_id = invoice.id): invoice.send,
   // invoice-email. stripe.worker keys by event id, so it's intentionally
   // left alone.
-  if (seededInvoiceIds.length > 0) {
+  if (invoiceIds.length > 0) {
     await t('audit_log')
       .where({ org_id: orgId })
       .whereIn('source', ['invoice.send', 'invoice-email'])
-      .whereIn('external_id', seededInvoiceIds)
+      .whereIn('external_id', invoiceIds)
       .del();
   }
 
@@ -284,40 +295,14 @@ export async function removeSeeded(orgId: string, t: Tdb): Promise<SeedSummary> 
     }
   }
 
-  const seededClients = (await t('clients')
-    .where({ org_id: orgId })
-    .whereNotNull('seeded_at')
-    .select('id')) as Array<{ id: string }>;
-
-  const ids = seededClients.map((c) => c.id);
-  const adoptedSet = new Set<string>();
-  if (ids.length) {
-    const invRefs = (await t('invoices')
-      .whereIn('client_id', ids)
-      .distinct('client_id')) as Array<{ client_id: string }>;
-    for (const r of invRefs) adoptedSet.add(r.client_id);
-
-    const teRefs = (await t('time_entries')
-      .whereIn('client_id', ids)
-      .distinct('client_id')) as Array<{ client_id: string }>;
-    for (const r of teRefs) adoptedSet.add(r.client_id);
-  }
-
-  const toAdopt = ids.filter((id) => adoptedSet.has(id));
-  const toDelete = ids.filter((id) => !adoptedSet.has(id));
-
-  if (toAdopt.length) {
-    await t('clients').whereIn('id', toAdopt).update({ seeded_at: null });
-  }
-  const clients = toDelete.length
-    ? ((await t('clients').whereIn('id', toDelete).del()) as unknown as number)
-    : 0;
+  const clients = (await t('clients')
+    .whereIn('id', clientIds)
+    .del()) as unknown as number;
 
   return {
     clients: Number(clients) || 0,
     time_entries: Number(timeEntries) || 0,
     invoices: Number(invoices) || 0,
-    adopted: toAdopt.length,
   };
 }
 

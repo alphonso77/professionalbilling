@@ -14,10 +14,7 @@ import { ApiError } from "@/lib/api";
 import type { SeedSummary } from "@/types/api";
 
 function summaryLine(s: SeedSummary): string {
-  const base = `${s.clients} clients, ${s.time_entries} time entries, ${s.invoices} invoices`;
-  return s.adopted
-    ? `${base} (${s.adopted} adopted — kept due to real work)`
-    : base;
+  return `${s.clients} clients, ${s.time_entries} time entries, ${s.invoices} invoices`;
 }
 
 export function SeedModal({

@@ -230,12 +230,13 @@ export async function handleDelete(req: AuthenticatedRequest) {
         `${timeEntryCount} ${timeEntryCount === 1 ? 'time entry' : 'time entries'}`
       );
     }
+    const subject = client.seeded_at ? 'This client' : 'Client';
     const suffix = client.seeded_at
-      ? ' Use the seed-removal flow or ?force=true to cascade-delete this demo client.'
-      : ' Delete them first.';
+      ? " Use the 'Clean Slate' option in the Seed modal to remove demo data."
+      : ' Delete or reassign them first.';
     throw new AppError(
       409,
-      `Client has ${parts.join(' and ')}.${suffix}`,
+      `${subject} has ${parts.join(' and ')}.${suffix}`,
       'CLIENT_HAS_HISTORY'
     );
   }
@@ -245,6 +246,14 @@ export async function handleDelete(req: AuthenticatedRequest) {
       invoiceCount > 0 ? await tdb('invoices').where({ client_id: id }).del() : 0;
     const teDeleted =
       timeEntryCount > 0 ? await tdb('time_entries').where({ client_id: id }).del() : 0;
+
+    if (invoiceRows.length > 0) {
+      await tdb('audit_log')
+        .where({ org_id: client.org_id })
+        .whereIn('source', ['invoice.send', 'invoice-email'])
+        .whereIn('external_id', invoiceRows.map((r) => r.id))
+        .del();
+    }
 
     await tdb('audit_log').insert({
       source: 'client.delete',

@@ -74,7 +74,7 @@ export function IntegrationsPage() {
       await disconnect.mutateAsync(stripePlatform.id);
       toast({
         variant: "success",
-        title: "Stripe disconnected.",
+        title: "Stripe disconnected",
       });
       setConfirmOpen(false);
     } catch (err) {
@@ -121,9 +121,8 @@ export function IntegrationsPage() {
               <Button
                 variant="destructive"
                 onClick={() => setConfirmOpen(true)}
-                disabled={disconnect.isPending}
               >
-                {disconnect.isPending ? "Disconnecting…" : "Disconnect"}
+                Disconnect
               </Button>
             </>
           ) : (

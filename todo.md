@@ -33,6 +33,15 @@
     - `organization.deleted` + `organizationMembership.deleted` already handled
     - only `user.deleted` is missing; add handler + idempotent audit-log check
 
+### Phase 2A - UAT Testing Results
+
+* deleted seed data (no errors), attempted to delete ACme client (got a message saying delete invoice first)
+    - navigated to invoice, UI doesn't have a delete invoice button that I could see
+    - does that land in a phase 2b ? or was it a miss?
+* two emails still received on sign up
+    - if it makes things easier, search the commit history in IntegraSentry
+    - we had this very same bug, maybe it's the same thing happening
+
 ## Pending
 
 ### Phase 2B — Complete DB reset (admin feature)
@@ -77,3 +86,6 @@
 * basic reporting: "give me a 30, 60, 90 day summary of my expected AR"
 * other features you think could be useful for this tool
 * IntegraSentry has a chat-ai concierge feature already implemented - use that for architectural guidance
+* in order to demonstrate the feature, create a feature to generate raw data
+    - generate raw csv with basic time logs
+    - generate a raw text file with notes about meetings with clients and work done

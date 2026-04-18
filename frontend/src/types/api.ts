@@ -199,5 +199,4 @@ export type SeedSummary = {
   clients: number;
   time_entries: number;
   invoices: number;
-  adopted: number;
 };

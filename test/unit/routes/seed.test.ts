@@ -146,7 +146,7 @@ describe('routes/seed — handlers', () => {
     await handleSeed('org_1', db as any);
     const second = await handleSeed('org_1', db as any);
     expect(second.seeded).to.equal(false);
-    expect(second.summary).to.deep.equal({ clients: 0, time_entries: 0, invoices: 0, adopted: 0 });
+    expect(second.summary).to.deep.equal({ clients: 0, time_entries: 0, invoices: 0 });
   });
 
   it('handleReseed wipes and reinserts, returning fresh counts', async () => {

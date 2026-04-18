@@ -162,9 +162,9 @@ describe('services/seed-builder', () => {
     expect(await hasSeededData('org_1', db as any)).to.equal(true);
   });
 
-  it('removeSeeded deletes every seeded row but preserves user rows', async () => {
+  it('removeSeeded deletes every seeded row but preserves unrelated user rows', async () => {
     const db = makeMockDb();
-    // Pre-seed a real (non-seeded) client + entry.
+    // Pre-seed a real (non-seeded) client + entry that do NOT reference any seeded client.
     db._tables.clients.push({ id: 'real-client', org_id: 'org_1', name: 'Real', seeded_at: null });
     db._tables.time_entries.push({
       id: 'real-entry',
@@ -181,14 +181,14 @@ describe('services/seed-builder', () => {
     expect(counts.clients).to.equal(4);
     expect(counts.invoices).to.equal(3);
     expect(counts.time_entries).to.be.greaterThan(0);
-    expect(counts.adopted).to.equal(0);
+    expect((counts as any).adopted).to.equal(undefined);
 
-    // Real data untouched.
+    // Real data (unrelated to any seeded client) untouched.
     expect(db._tables.clients.map((r) => r.id)).to.include('real-client');
     expect(db._tables.time_entries.map((r) => r.id)).to.include('real-entry');
   });
 
-  it('removeSeeded adopts a seeded client that has a non-seeded invoice pointing at it', async () => {
+  it('removeSeeded cascade-deletes a non-seeded invoice pointing at a seeded client', async () => {
     const db = makeMockDb();
     await run('org_1', db as any);
     const target = db._tables.clients.find((c) => c.name === 'Acme Corp') as Row;
@@ -204,19 +204,19 @@ describe('services/seed-builder', () => {
     });
 
     const counts = await removeSeeded('org_1', db as any);
-    expect(counts.adopted).to.equal(1);
-    expect(counts.clients).to.equal(3);
+    // 4 seeded clients, all deleted (no adoption).
+    expect(counts.clients).to.equal(4);
+    // 3 seeded invoices + 1 non-seeded invoice tied to a seeded client.
+    expect(counts.invoices).to.equal(4);
 
-    const still = db._tables.clients.find((c) => c.id === target.id) as Row;
-    expect(still, 'adopted client still exists').to.not.be.undefined;
-    expect(still.seeded_at).to.equal(null);
+    const gone = db._tables.clients.find((c) => c.id === target.id);
+    expect(gone, 'seeded client deleted').to.equal(undefined);
 
-    const inv = db._tables.invoices.find((i) => i.id === 'real-invoice') as Row;
-    expect(inv, 'non-seeded invoice preserved').to.not.be.undefined;
-    expect(inv.client_id).to.equal(target.id);
+    const inv = db._tables.invoices.find((i) => i.id === 'real-invoice');
+    expect(inv, 'non-seeded invoice cascade-deleted').to.equal(undefined);
   });
 
-  it('removeSeeded adopts a seeded client that has a non-seeded time_entry pointing at it', async () => {
+  it('removeSeeded cascade-deletes a non-seeded time_entry pointing at a seeded client', async () => {
     const db = makeMockDb();
     await run('org_1', db as any);
     const target = db._tables.clients.find((c) => c.name === 'Globex Industries') as Row;
@@ -233,16 +233,13 @@ describe('services/seed-builder', () => {
     });
 
     const counts = await removeSeeded('org_1', db as any);
-    expect(counts.adopted).to.equal(1);
-    expect(counts.clients).to.equal(3);
+    expect(counts.clients).to.equal(4);
 
-    const still = db._tables.clients.find((c) => c.id === target.id) as Row;
-    expect(still).to.not.be.undefined;
-    expect(still.seeded_at).to.equal(null);
+    const gone = db._tables.clients.find((c) => c.id === target.id);
+    expect(gone, 'seeded client deleted').to.equal(undefined);
 
-    const te = db._tables.time_entries.find((t) => t.id === 'real-entry') as Row;
-    expect(te).to.not.be.undefined;
-    expect(te.client_id).to.equal(target.id);
+    const te = db._tables.time_entries.find((t) => t.id === 'real-entry');
+    expect(te, 'non-seeded time_entry cascade-deleted').to.equal(undefined);
   });
 
   it('removeSeeded deletes fully-orphan seeded clients', async () => {
@@ -250,14 +247,14 @@ describe('services/seed-builder', () => {
     await run('org_1', db as any);
 
     const counts = await removeSeeded('org_1', db as any);
-    expect(counts.adopted).to.equal(0);
+    expect((counts as any).adopted).to.equal(undefined);
     expect(counts.clients).to.equal(4);
 
     const remaining = db._tables.clients.filter((c) => c.org_id === 'org_1');
     expect(remaining.length).to.equal(0);
   });
 
-  it('removeSeeded handles mixed adoption (one adopted, others deleted)', async () => {
+  it('removeSeeded cascade-deletes every seeded client regardless of mixed descendants', async () => {
     const db = makeMockDb();
     await run('org_1', db as any);
     const acme = db._tables.clients.find((c) => c.name === 'Acme Corp') as Row;
@@ -282,13 +279,46 @@ describe('services/seed-builder', () => {
     });
 
     const counts = await removeSeeded('org_1', db as any);
-    expect(counts.adopted).to.equal(2);
-    expect(counts.clients).to.equal(2);
+    expect(counts.clients).to.equal(4);
 
-    const acmeAfter = db._tables.clients.find((c) => c.id === acme.id) as Row;
-    const globexAfter = db._tables.clients.find((c) => c.id === globex.id) as Row;
-    expect(acmeAfter.seeded_at).to.equal(null);
-    expect(globexAfter.seeded_at).to.equal(null);
+    expect(db._tables.clients.find((c) => c.id === acme.id)).to.equal(undefined);
+    expect(db._tables.clients.find((c) => c.id === globex.id)).to.equal(undefined);
+    expect(db._tables.invoices.find((i) => i.id === 'real-invoice')).to.equal(undefined);
+    expect(db._tables.time_entries.find((t) => t.id === 'real-entry')).to.equal(undefined);
+  });
+
+  it('removeSeeded purges audit_log rows keyed to deleted invoices (seeded and non-seeded)', async () => {
+    const db = makeMockDb();
+    await run('org_1', db as any);
+    const acme = db._tables.clients.find((c) => c.name === 'Acme Corp') as Row;
+
+    const seededInv = db._tables.invoices.find(
+      (i) => i.client_id === acme.id && i.seeded_at
+    ) as Row;
+    const nonSeededInv: Row = {
+      id: 'real-inv',
+      org_id: 'org_1',
+      client_id: acme.id,
+      status: 'open',
+      total_cents: 5_000,
+      seeded_at: null,
+    };
+    db._tables.invoices.push(nonSeededInv);
+
+    db._tables.audit_log.push(
+      { id: 'a1', org_id: 'org_1', source: 'invoice.send', external_id: seededInv.id, status: 'skipped' },
+      { id: 'a2', org_id: 'org_1', source: 'invoice-email', external_id: nonSeededInv.id, status: 'processed' },
+      { id: 'a3', org_id: 'org_1', source: 'stripe.worker', external_id: 'evt_123', status: 'processed' },
+      { id: 'a4', org_id: 'org_1', source: 'invoice.send', external_id: 'other-inv', status: 'skipped' },
+    );
+
+    await removeSeeded('org_1', db as any);
+
+    const remaining = db._tables.audit_log.map((r) => r.id);
+    expect(remaining).to.not.include('a1');
+    expect(remaining).to.not.include('a2');
+    expect(remaining, 'stripe.worker rows are untouched').to.include('a3');
+    expect(remaining, 'unrelated invoice audit rows are untouched').to.include('a4');
   });
 
   it('removeSeeded rewinds invoice_sequences.next_seq when only seeded invoices exist in a year', async () => {
