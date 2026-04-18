@@ -200,10 +200,7 @@ describe('routes/platforms — handleDelete', () => {
     await handleDelete({ id: 'plat_1', orgId: 'org_1' }, deps);
 
     expect(deps._deauthCalls).to.have.length(1);
-    expect(deps._deauthCalls[0]).to.deep.equal({
-      accessToken: 'sk_access_token_xyz',
-      stripeUserId: 'acct_abc',
-    });
+    expect(deps._deauthCalls[0]).to.deep.equal({ stripeUserId: 'acct_abc' });
     expect(deps._mock._tables.audit_log).to.have.length(1);
     expect(deps._mock._tables.audit_log[0]).to.include({
       source: 'stripe',

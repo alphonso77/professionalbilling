@@ -2,7 +2,6 @@ import axios, { AxiosError } from 'axios';
 import { env } from '../config/env';
 
 export interface DeauthorizeOpts {
-  accessToken: string;
   stripeUserId: string;
 }
 
@@ -14,12 +13,7 @@ export interface DeauthorizeResult {
 const DEAUTHORIZE_URL = 'https://connect.stripe.com/oauth/deauthorize';
 const TIMEOUT_MS = 10_000;
 
-// The OAuth deauthorize endpoint authenticates with the platform's secret key +
-// stripe_user_id; the connected account's access token is not used. The field
-// is kept on the signature for parity with other OAuth connector helpers.
 export async function deauthorizeStripeAccount(opts: DeauthorizeOpts): Promise<DeauthorizeResult> {
-  void opts.accessToken;
-
   if (!env.STRIPE_SECRET_KEY) {
     throw new Error('STRIPE_SECRET_KEY is not configured');
   }

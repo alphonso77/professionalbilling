@@ -56,10 +56,7 @@ describe('services/stripe-oauth — deauthorizeStripeAccount', () => {
       return { status: 200, data: { stripe_user_id: 'acct_abc' } };
     });
 
-    const result = await deauthorizeStripeAccount({
-      accessToken: 'sk_access_xyz',
-      stripeUserId: 'acct_abc',
-    });
+    const result = await deauthorizeStripeAccount({ stripeUserId: 'acct_abc' });
 
     expect(result).to.deep.equal({ deauthorized: true });
     expect(capturedUrl).to.equal('https://connect.stripe.com/oauth/deauthorize');
@@ -77,10 +74,7 @@ describe('services/stripe-oauth — deauthorizeStripeAccount', () => {
       throw makeAxiosError({ status: 400, data: { error: 'invalid_client' } });
     });
 
-    const result = await deauthorizeStripeAccount({
-      accessToken: 'sk_access_xyz',
-      stripeUserId: 'acct_abc',
-    });
+    const result = await deauthorizeStripeAccount({ stripeUserId: 'acct_abc' });
 
     expect(result).to.deep.equal({ deauthorized: true, alreadyRevoked: true });
   });
@@ -90,10 +84,7 @@ describe('services/stripe-oauth — deauthorizeStripeAccount', () => {
       throw makeAxiosError({ status: 400, data: { error: 'account_not_connected' } });
     });
 
-    const result = await deauthorizeStripeAccount({
-      accessToken: 'sk_access_xyz',
-      stripeUserId: 'acct_abc',
-    });
+    const result = await deauthorizeStripeAccount({ stripeUserId: 'acct_abc' });
 
     expect(result).to.deep.equal({ deauthorized: true, alreadyRevoked: true });
   });
@@ -108,10 +99,7 @@ describe('services/stripe-oauth — deauthorizeStripeAccount', () => {
 
     let caught: unknown;
     try {
-      await deauthorizeStripeAccount({
-        accessToken: 'sk_access_xyz',
-        stripeUserId: 'acct_abc',
-      });
+      await deauthorizeStripeAccount({ stripeUserId: 'acct_abc' });
     } catch (err) {
       caught = err;
     }
@@ -126,10 +114,7 @@ describe('services/stripe-oauth — deauthorizeStripeAccount', () => {
 
     let caught: unknown;
     try {
-      await deauthorizeStripeAccount({
-        accessToken: 'sk_access_xyz',
-        stripeUserId: 'acct_abc',
-      });
+      await deauthorizeStripeAccount({ stripeUserId: 'acct_abc' });
     } catch (err) {
       caught = err;
     }

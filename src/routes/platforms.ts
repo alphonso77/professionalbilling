@@ -92,12 +92,12 @@ export async function handleDelete(
 
   if (!row) throw new AppError(404, 'Platform not found');
 
-  const { accessToken, stripeUserId } = extractStripeCredentials(row);
+  const { stripeUserId } = extractStripeCredentials(row);
 
   let status: 'processed' | 'error' = 'processed';
   let errorDetail: string | null = null;
   try {
-    const result = await deps.deauthorize({ accessToken, stripeUserId });
+    const result = await deps.deauthorize({ stripeUserId });
     logger.info('Stripe deauthorized', {
       orgId: params.orgId,
       stripeUserId,
@@ -134,10 +134,7 @@ interface PlatformRow {
   credentials_tag: Buffer | null;
 }
 
-function extractStripeCredentials(row: PlatformRow): {
-  accessToken: string;
-  stripeUserId: string;
-} {
+function extractStripeCredentials(row: PlatformRow): { stripeUserId: string } {
   if (!row.credentials_encrypted || !row.credentials_iv || !row.credentials_tag) {
     throw new AppError(500, 'Platform credentials are missing or corrupted');
   }
@@ -154,11 +151,16 @@ function extractStripeCredentials(row: PlatformRow): {
     if (!parsed.access_token) {
       throw new Error('access_token missing from decrypted credentials');
     }
-    return {
-      accessToken: parsed.access_token,
-      stripeUserId: parsed.stripe_user_id ?? row.external_account_id ?? '',
-    };
+    const stripeUserId = parsed.stripe_user_id ?? row.external_account_id;
+    if (!stripeUserId) {
+      throw new AppError(
+        500,
+        'Platform is missing stripe_user_id (both decrypted payload and external_account_id are unset)'
+      );
+    }
+    return { stripeUserId };
   } catch (err) {
+    if (err instanceof AppError) throw err;
     throw new AppError(500, `Failed to decrypt platform credentials: ${(err as Error).message}`);
   }
 }
