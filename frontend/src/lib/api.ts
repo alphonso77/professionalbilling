@@ -4,12 +4,14 @@ const DEFAULT_BASE_URL =
 
 export class ApiError extends Error {
   status: number;
+  code?: string;
   details?: unknown;
 
-  constructor(status: number, message: string, details?: unknown) {
+  constructor(status: number, message: string, code?: string, details?: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
     this.details = details;
   }
 }
@@ -61,13 +63,20 @@ export async function request<T>(
   if (!res.ok) {
     const errBody =
       parsed && typeof parsed === "object"
-        ? (parsed as { error?: string; details?: unknown })
+        ? (parsed as {
+            error?: string | { message?: string; code?: string };
+            details?: unknown;
+          })
         : null;
-    throw new ApiError(
-      res.status,
-      errBody?.error ?? `Request failed: ${res.status}`,
-      errBody?.details,
-    );
+    let message = `Request failed: ${res.status}`;
+    let code: string | undefined;
+    if (typeof errBody?.error === "string") {
+      message = errBody.error;
+    } else if (errBody?.error && typeof errBody.error === "object") {
+      message = errBody.error.message ?? message;
+      code = errBody.error.code;
+    }
+    throw new ApiError(res.status, message, code, errBody?.details);
   }
 
   if (parsed && typeof parsed === "object" && "data" in parsed) {

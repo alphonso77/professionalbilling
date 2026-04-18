@@ -90,3 +90,70 @@ export type Platform = {
   created_at: string;
   updated_at: string;
 };
+
+export type InvoiceStatus = "draft" | "open" | "paid" | "void";
+
+export interface Invoice {
+  id: string;
+  orgId: string;
+  clientId: string;
+  number: string | null;
+  status: InvoiceStatus;
+  issueDate: string | null;
+  dueDate: string | null;
+  subtotalCents: number;
+  totalCents: number;
+  notes: string | null;
+  stripePaymentIntentId: string | null;
+  stripeClientSecret: string | null;
+  paymentToken: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InvoiceLineItem {
+  id: string;
+  invoiceId: string;
+  timeEntryId: string | null;
+  description: string;
+  quantityHours: number;
+  rateCents: number;
+  amountCents: number;
+  createdAt: string;
+}
+
+export interface InvoiceWithItems extends Invoice {
+  lineItems: InvoiceLineItem[];
+  client: { id: string; name: string; email: string | null };
+  stripePublishableKey?: string;
+  connectedAccountId?: string;
+}
+
+export interface PublicInvoicePayment {
+  invoice: {
+    id: string;
+    number: string;
+    totalCents: number;
+    currency: "usd";
+    status: InvoiceStatus;
+    orgName: string;
+    clientName: string;
+  };
+  stripeClientSecret: string;
+  stripePublishableKey: string;
+  connectedAccountId: string;
+}
+
+export interface CreateInvoiceInput {
+  clientId: string;
+  timeEntryIds: string[];
+  dueDate?: string;
+  notes?: string;
+}
+
+export interface UpdateInvoiceInput {
+  dueDate?: string | null;
+  notes?: string | null;
+  removeLineItemIds?: string[];
+}

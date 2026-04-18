@@ -22,6 +22,8 @@ import meRoutes from './routes/me';
 import clientsRoutes from './routes/clients';
 import timeEntriesRoutes from './routes/time-entries';
 import platformsRoutes from './routes/platforms';
+import invoicesRoutes from './routes/invoices';
+import publicInvoicesRoutes from './routes/public-invoices';
 import { generateOpenApiDocument } from './openapi/generate';
 
 const app = express();
@@ -96,12 +98,17 @@ app.use('/api/webhooks', webhookRoutes);
 // callback is a provider redirect — org context comes from the state param. ----
 app.use('/api/oauth', oauthRoutes);
 
+// ---- Public payment route (no Clerk auth; token-gated). Must be mounted
+// BEFORE the authenticated routes so `/api/public/...` bypasses requireOrg. ----
+app.use('/api/public', publicInvoicesRoutes);
+
 // ---- Tenant-scoped routes ----
 app.use('/api/me', requireOrg(), meRoutes);
 app.use('/api/docs', requireOrg(), docsRoutes);
 app.use('/api/clients', requireOrg(), clientsRoutes);
 app.use('/api/time-entries', requireOrg(), timeEntriesRoutes);
 app.use('/api/platforms', requireOrg(), platformsRoutes);
+app.use('/api/invoices', requireOrg(), invoicesRoutes);
 
 // ---- Error handler (last) ----
 app.use(errorHandler);

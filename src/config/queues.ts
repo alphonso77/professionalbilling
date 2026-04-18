@@ -29,3 +29,20 @@ export function getStripeEventsQueue(): Queue<StripeEventJobData> {
   }
   return _stripeEventsQueue;
 }
+
+export const INVOICE_EMAIL_QUEUE = 'invoice-email';
+
+export interface InvoiceEmailJobData {
+  invoiceId: string;
+}
+
+let _invoiceEmailQueue: Queue<InvoiceEmailJobData> | null = null;
+
+export function getInvoiceEmailQueue(): Queue<InvoiceEmailJobData> {
+  if (!_invoiceEmailQueue) {
+    _invoiceEmailQueue = new Queue<InvoiceEmailJobData>(INVOICE_EMAIL_QUEUE, {
+      connection: redis,
+    });
+  }
+  return _invoiceEmailQueue;
+}

@@ -25,8 +25,13 @@ const TimeEntrySchema = z
 
 const ListQuery = z.object({
   client_id: z.string().uuid().optional(),
+  clientId: z.string().uuid().optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
+  unbilled: z
+    .union([z.literal('true'), z.literal('false'), z.boolean()])
+    .optional()
+    .transform((v) => v === true || v === 'true'),
 });
 
 const CreateBody = z
@@ -77,10 +82,26 @@ registry.registerPath({
 
 export async function handleList(req: AuthenticatedRequest) {
   const query = ListQuery.parse(req.query);
-  const qb = tdb('time_entries').select('*').orderBy('started_at', 'desc');
-  if (query.client_id) qb.where({ client_id: query.client_id });
-  if (query.from) qb.where('started_at', '>=', query.from);
-  if (query.to) qb.where('started_at', '<=', query.to);
+  const clientId = query.clientId ?? query.client_id;
+
+  const qb = tdb('time_entries as te')
+    .select('te.*')
+    .orderBy('te.started_at', 'desc');
+  if (clientId) qb.where('te.client_id', clientId);
+  if (query.from) qb.where('te.started_at', '>=', query.from);
+  if (query.to) qb.where('te.started_at', '<=', query.to);
+
+  if (query.unbilled) {
+    // Exclude time entries referenced by any non-void invoice's line items.
+    qb.whereNotExists(function () {
+      this.select('*')
+        .from('invoice_line_items as ili')
+        .join('invoices as inv', 'inv.id', 'ili.invoice_id')
+        .whereRaw('ili.time_entry_id = te.id')
+        .whereNot('inv.status', 'void');
+    });
+  }
+
   const rows = await qb;
   return { data: rows };
 }

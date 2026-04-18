@@ -15,7 +15,8 @@
     "migrate:rollback": "knex migrate:rollback --knexfile datastore/knexfile.js",
     "seed": "knex seed:run --knexfile datastore/knexfile.js",
     "setup:webhooks": "tsx src/scripts/setup-webhooks.ts",
-    "worker:stripe-events": "tsx src/workers/stripe-events.ts"
+    "worker:stripe-events": "tsx src/workers/stripe-events.ts",
+    "worker:invoice-email": "tsx src/workers/invoice-email.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^7.3.0",

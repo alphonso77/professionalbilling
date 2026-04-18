@@ -21,6 +21,7 @@ const envSchema = z.object({
   CLERK_WEBHOOK_SIGNING_SECRET: z.string().optional(),
 
   STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_PUBLISHABLE_KEY: z.string().optional(),
   STRIPE_CLIENT_ID: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_CONNECT_REDIRECT_URI: z
@@ -28,6 +29,9 @@ const envSchema = z.object({
     .default('http://localhost:3000/api/oauth/callback/stripe'),
 
   RESEND_API_KEY: z.string().optional(),
+  RESEND_FROM_ADDRESS: z
+    .string()
+    .default('no-reply@professionalbilling.fratellisoftware.com'),
 
   ENCRYPTION_KEY: z
     .string()
