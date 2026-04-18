@@ -2,21 +2,25 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { registry } from '../openapi/registry';
 import { tdb } from '../config/tenant-context';
+import { AppError } from '../middleware/error-handler';
 import { tenantScope } from '../middleware/tenant-scope';
 import type { AuthenticatedRequest } from '../middleware/auth';
 
 const router = Router();
 
+const UserSchema = z
+  .object({
+    id: z.string().uuid(),
+    email: z.string().email().nullable(),
+    clerk_user_id: z.string(),
+    role: z.enum(['owner', 'admin', 'member']),
+    default_rate_cents: z.number().int().nullable(),
+  })
+  .openapi('MeUser');
+
 const MeResponse = z.object({
   data: z.object({
-    user: z
-      .object({
-        id: z.string().uuid(),
-        email: z.string().email().nullable(),
-        clerk_user_id: z.string(),
-        role: z.enum(['owner', 'admin', 'member']),
-      })
-      .nullable(),
+    user: UserSchema.nullable(),
     org: z.object({
       id: z.string().uuid(),
       clerk_org_id: z.string(),
@@ -24,6 +28,14 @@ const MeResponse = z.object({
     }),
   }),
 });
+
+const UpdateMeBody = z
+  .object({
+    default_rate_cents: z.number().int().min(0).nullable().optional(),
+  })
+  .openapi('UpdateMeBody');
+
+const USER_COLUMNS = ['id', 'email', 'clerk_user_id', 'role', 'default_rate_cents'];
 
 registry.registerPath({
   method: 'get',
@@ -40,12 +52,26 @@ registry.registerPath({
   },
 });
 
+registry.registerPath({
+  method: 'patch',
+  path: '/api/me',
+  tags: ['me'],
+  summary: 'Update current user profile',
+  security: [{ bearerAuth: [] }, { orgIdHeader: [] }],
+  request: { body: { content: { 'application/json': { schema: UpdateMeBody } } } },
+  responses: {
+    200: {
+      description: 'Updated caller identity and org',
+      content: { 'application/json': { schema: MeResponse } },
+    },
+    400: { description: 'Validation error' },
+    401: { description: 'Not authenticated' },
+  },
+});
+
 export async function handleMe(req: AuthenticatedRequest) {
   const userRow = req.userId
-    ? await tdb('users')
-        .where({ id: req.userId })
-        .select('id', 'email', 'clerk_user_id', 'role')
-        .first()
+    ? await tdb('users').where({ id: req.userId }).select(USER_COLUMNS).first()
     : null;
   return {
     data: {
@@ -59,6 +85,17 @@ export async function handleMe(req: AuthenticatedRequest) {
   };
 }
 
+export async function handleUpdateMe(req: AuthenticatedRequest) {
+  if (!req.userId) throw new AppError(401, 'Authentication required');
+  const body = UpdateMeBody.parse(req.body);
+  const patch: Record<string, unknown> = {};
+  if ('default_rate_cents' in body) patch.default_rate_cents = body.default_rate_cents;
+  if (Object.keys(patch).length) {
+    await tdb('users').where({ id: req.userId }).update(patch);
+  }
+  return handleMe(req);
+}
+
 router.get(
   '/',
   tenantScope(async (req, res) => {
@@ -66,4 +103,12 @@ router.get(
   })
 );
 
+router.patch(
+  '/',
+  tenantScope(async (req, res) => {
+    res.json(await handleUpdateMe(req));
+  })
+);
+
 export default router;
+export { UpdateMeBody };

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useApi } from "@/hooks/use-api";
-import type { Client, CreateClientInput } from "@/types/api";
+import type { Client, CreateClientInput, UpdateClientInput } from "@/types/api";
 
 const QUERY_KEY = ["clients"] as const;
 
@@ -19,6 +19,18 @@ export function useCreateClient() {
   return useMutation({
     mutationFn: (input: CreateClientInput) =>
       call<Client>("POST", "/api/clients", input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QUERY_KEY });
+    },
+  });
+}
+
+export function useUpdateClient() {
+  const { call } = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: UpdateClientInput }) =>
+      call<Client>("PATCH", `/api/clients/${id}`, patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEY });
     },

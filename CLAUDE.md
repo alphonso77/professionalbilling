@@ -49,6 +49,28 @@ Frontend (from `/frontend`):
 
 All user-facing help text lives in `corporate.docs_registry` (seeded). Frontend reads via `GET /api/docs` + `DocsRegistryContext`. UI wires with `<InfoBubble registryKey="..." />` → click opens `<InfoModal>` → "Read more" links to `/docs/:slug` full page. Never hardcode explanatory text in components.
 
+## Invoicing
+
+Status flow: `draft` → `open` → `paid` (or `void` from any pre-paid state). Line items are mutable only while `draft`; `open` is immutable except for the terminal transitions.
+
+- **Numbering:** `YYYY-NNNN`, per-org sequential, resets per calendar year. Allocated at finalize time via `invoice_sequences` with `SELECT … FOR UPDATE` inside the tenant transaction — never generate numbers client-side or out-of-band.
+- **Finalize (`POST /api/invoices/:id/finalize`):** atomically assigns the number, creates a Stripe PaymentIntent on the connected account (`{stripeAccount: orgStripeAccountId}`), generates a random `payment_token` (UUID), persists `stripe_payment_intent_id` + `stripe_client_secret` + `payment_token`. Fails 424 if the org has no Stripe platform. Fails 400 if total ≤ 0 (avoids stranding a consumed sequence number on a PI-create failure).
+- **Payment reconciliation:** `payment_intent.succeeded` webhook looks up the invoice by `stripe_payment_intent_id` (raw `db` in the worker, RLS bypassed) and sets `status='paid'` + `paid_at=now()`. Idempotent via the existing audit-log check.
+- **Email (`POST /api/invoices/:id/send`):** enqueues `invoice-email` (BullMQ). Worker (`src/workers/invoice-email.ts`) uses Resend, builds the public payment URL server-side as `${FRONTEND_URL}/pay/${id}?token=${payment_token}`.
+- **Field-visibility rules on authenticated responses:** list never includes `stripe_client_secret`, `stripe_publishable_key`, `connected_account_id`, or `payment_token`; detail includes `stripe_client_secret` + `stripe_publishable_key` + `connected_account_id` only when `status='open'`; `payment_token` is never returned on any authenticated response (it's server-side only for email URL building).
+- **Unbilled time entries:** `GET /api/time-entries?unbilled=true&clientId=…` excludes entries referenced by any non-`void` invoice line item (computed join, no denormalized flag).
+
+## Public (unauthenticated) routes
+
+Namespace: `/api/public/*`. Mounted **before** `tenantScope` in `server.ts`. Uses raw `db` — RLS is bypassed on purpose because the auth is a token carried in the URL, not a Clerk session.
+
+Pattern (see `src/routes/public-invoices.ts`):
+- Compare tokens with `crypto.timingSafeEqual` to avoid length/content timing oracles.
+- Collapse "not found" and "bad token" into a single `404` — never distinguish (prevents enumeration).
+- Return `410` when the resource is in a terminal state (paid, void, expired).
+- Return `503` for known server-side misconfiguration (missing env/platform row) — not `500`, which implies an unexpected crash.
+- Apply a per-IP rate limit (`express-rate-limit`) on every public route.
+
 ## Stripe Connect webhooks
 
 Platform-level pattern (one endpoint for all connected accounts):
@@ -57,6 +79,8 @@ Platform-level pattern (one endpoint for all connected accounts):
 - Tenant resolved by looking up `event.account` in `platforms.external_account_id`; fail-open on unknown account (200 ignored) per IntegraSentry convention
 - Events enqueued on `stripe-events` BullMQ queue; processed by `src/workers/stripe-events.ts`
 - Idempotency: worker checks `audit_log` for `source='stripe.worker' AND external_id=event.id AND status IN ('processed','ignored')`
+- Implemented handlers: `payment_intent.succeeded` flips invoice to paid. Other event types are logged + audited as stubs.
+- Local testing: `stripe listen --forward-connect-to localhost:3000/api/webhooks/stripe` (Connect events, not platform events — the `--forward-to` flag would miss them).
 
 ## API conventions
 
@@ -67,9 +91,9 @@ Platform-level pattern (one endpoint for all connected accounts):
 
 ## Required env vars (production)
 
-**api:** `DATABASE_URL`, `DATABASE_APP_URL`, `PROFESSIONALBILLING_APP_PASSWORD`, `REDIS_URL`, `API_BASE_URL`, `FRONTEND_URL`, `CORS_ORIGIN`, `NODE_ENV=production`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `CLERK_WEBHOOK_SIGNING_SECRET`, `ENCRYPTION_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_CLIENT_ID`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_REDIRECT_URI`, `RESEND_API_KEY` (optional)
+**api:** `DATABASE_URL`, `DATABASE_APP_URL`, `PROFESSIONALBILLING_APP_PASSWORD`, `REDIS_URL`, `API_BASE_URL`, `FRONTEND_URL`, `CORS_ORIGIN`, `NODE_ENV=production`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `CLERK_WEBHOOK_SIGNING_SECRET`, `ENCRYPTION_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY` (read at request time by finalize/detail/public invoice endpoints; missing = 503 on public, omitted on authenticated detail), `STRIPE_CLIENT_ID`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_REDIRECT_URI`, `RESEND_API_KEY` (required if `invoice-email` worker runs), `RESEND_FROM_ADDRESS` (defaults to `no-reply@professionalbilling.fratellisoftware.com`)
 
-**workers:** `DATABASE_URL`, `REDIS_URL`, `NODE_ENV=production`, `ENCRYPTION_KEY`, `STRIPE_SECRET_KEY`
+**workers:** `DATABASE_URL`, `REDIS_URL`, `NODE_ENV=production`, `ENCRYPTION_KEY`, `STRIPE_SECRET_KEY`, `FRONTEND_URL` (invoice-email builds payment URL), `RESEND_API_KEY`, `RESEND_FROM_ADDRESS`
 
 **frontend:** `VITE_CLERK_PUBLISHABLE_KEY`, `VITE_API_BASE_URL` (both baked at build time — rebuild to change)
 

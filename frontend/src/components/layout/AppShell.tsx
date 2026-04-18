@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Bell,
   Plug,
+  Settings,
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ const NAV: NavItem[] = [
   { to: "/invoices", label: "Invoices", icon: FileText },
   { to: "/alerts", label: "Alerts", icon: Bell },
   { to: "/settings/integrations", label: "Integrations", icon: Plug },
+  { to: "/settings", label: "Settings", icon: Settings },
   { to: "/docs", label: "Docs", icon: BookOpen },
 ];
 

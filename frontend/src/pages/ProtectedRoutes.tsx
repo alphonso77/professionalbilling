@@ -10,6 +10,7 @@ import { NewInvoicePage } from "@/pages/NewInvoicePage";
 import { InvoiceDetailPage } from "@/pages/InvoiceDetailPage";
 import { AlertsPage } from "@/pages/AlertsPage";
 import { IntegrationsPage } from "@/pages/IntegrationsPage";
+import { SettingsPage } from "@/pages/SettingsPage";
 import { DocsPage } from "@/pages/DocsPage";
 
 export function ProtectedRoutes() {
@@ -25,6 +26,7 @@ export function ProtectedRoutes() {
             <Route path="invoices/new" element={<NewInvoicePage />} />
             <Route path="invoices/:id" element={<InvoiceDetailPage />} />
             <Route path="alerts" element={<AlertsPage />} />
+            <Route path="settings" element={<SettingsPage />} />
             <Route path="settings/integrations" element={<IntegrationsPage />} />
             <Route path="docs" element={<DocsPage />} />
             <Route path="docs/:slug" element={<DocsPage />} />

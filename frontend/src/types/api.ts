@@ -1,17 +1,22 @@
+export type MeUser = {
+  id: string;
+  email: string | null;
+  clerk_user_id: string;
+  role: "owner" | "admin" | "member";
+  default_rate_cents: number | null;
+};
+
 export type Me = {
-  user:
-    | {
-        id: string;
-        email: string | null;
-        clerk_user_id: string;
-        role: "owner" | "admin" | "member";
-      }
-    | null;
+  user: MeUser | null;
   org: {
     id: string;
     clerk_org_id: string;
     plan: string;
   };
+};
+
+export type UpdateMeInput = {
+  default_rate_cents?: number | null;
 };
 
 export type Client = {
@@ -20,6 +25,7 @@ export type Client = {
   email: string | null;
   billing_address: string | null;
   notes: string | null;
+  default_rate_cents: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -29,6 +35,15 @@ export type CreateClientInput = {
   email?: string;
   billing_address?: string;
   notes?: string;
+  default_rate_cents?: number | null;
+};
+
+export type UpdateClientInput = {
+  name?: string;
+  email?: string | null;
+  billing_address?: string | null;
+  notes?: string | null;
+  default_rate_cents?: number | null;
 };
 
 export type TimeEntry = {

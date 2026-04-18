@@ -31,3 +31,16 @@ export function minutesToHours(minutes: number) {
   if (m === 0) return `${h}h`;
   return `${h}h ${m}m`;
 }
+
+export function parseDollarsToCents(s: string): number | null {
+  const trimmed = s.trim();
+  if (!trimmed) return null;
+  if (!/^-?\d*\.?\d{0,2}$/.test(trimmed)) return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 100);
+}
+
+export function formatCentsAsDollars(c: number): string {
+  return (c / 100).toFixed(2);
+}

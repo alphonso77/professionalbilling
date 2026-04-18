@@ -16,6 +16,7 @@ const ClientSchema = z
     email: z.string().nullable(),
     billing_address: z.string().nullable(),
     notes: z.string().nullable(),
+    default_rate_cents: z.number().int().nullable(),
     created_at: z.string(),
     updated_at: z.string(),
   })
@@ -27,8 +28,19 @@ const CreateClientBody = z
     email: z.string().email().optional(),
     billing_address: z.string().optional(),
     notes: z.string().optional(),
+    default_rate_cents: z.number().int().min(0).nullable().optional(),
   })
   .openapi('CreateClientBody');
+
+const UpdateClientBody = z
+  .object({
+    name: z.string().min(1).optional(),
+    email: z.string().email().nullable().optional(),
+    billing_address: z.string().nullable().optional(),
+    notes: z.string().nullable().optional(),
+    default_rate_cents: z.number().int().min(0).nullable().optional(),
+  })
+  .openapi('UpdateClientBody');
 
 const ListResponse = z.object({ data: z.array(ClientSchema) });
 const OneResponse = z.object({ data: ClientSchema });
@@ -46,6 +58,19 @@ registry.registerPath({
 });
 
 registry.registerPath({
+  method: 'get',
+  path: '/api/clients/{id}',
+  tags: ['clients'],
+  summary: 'Get a client',
+  security: [{ bearerAuth: [] }, { orgIdHeader: [] }],
+  request: { params: z.object({ id: z.string().uuid() }) },
+  responses: {
+    200: { description: 'Client', content: { 'application/json': { schema: OneResponse } } },
+    404: { description: 'Not found' },
+  },
+});
+
+registry.registerPath({
   method: 'post',
   path: '/api/clients',
   tags: ['clients'],
@@ -55,6 +80,23 @@ registry.registerPath({
   responses: {
     201: { description: 'Created', content: { 'application/json': { schema: OneResponse } } },
     400: { description: 'Validation error' },
+  },
+});
+
+registry.registerPath({
+  method: 'patch',
+  path: '/api/clients/{id}',
+  tags: ['clients'],
+  summary: 'Update a client',
+  security: [{ bearerAuth: [] }, { orgIdHeader: [] }],
+  request: {
+    params: z.object({ id: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: UpdateClientBody } } },
+  },
+  responses: {
+    200: { description: 'Updated', content: { 'application/json': { schema: OneResponse } } },
+    400: { description: 'Validation error' },
+    404: { description: 'Not found' },
   },
 });
 
@@ -71,9 +113,28 @@ registry.registerPath({
   },
 });
 
+const CLIENT_COLUMNS = [
+  'id',
+  'org_id',
+  'name',
+  'email',
+  'billing_address',
+  'notes',
+  'default_rate_cents',
+  'created_at',
+  'updated_at',
+];
+
 export async function handleList() {
-  const rows = await tdb('clients').select('*').orderBy('created_at', 'desc');
+  const rows = await tdb('clients').select(CLIENT_COLUMNS).orderBy('created_at', 'desc');
   return { data: rows };
+}
+
+export async function handleGet(req: AuthenticatedRequest) {
+  const id = z.string().uuid().parse(req.params.id);
+  const row = await tdb('clients').where({ id }).select(CLIENT_COLUMNS).first();
+  if (!row) throw new AppError(404, 'Client not found');
+  return { data: row };
 }
 
 export async function handleCreate(req: AuthenticatedRequest) {
@@ -85,9 +146,33 @@ export async function handleCreate(req: AuthenticatedRequest) {
       email: body.email ?? null,
       billing_address: body.billing_address ?? null,
       notes: body.notes ?? null,
+      default_rate_cents: body.default_rate_cents ?? null,
     })
-    .returning('*');
+    .returning(CLIENT_COLUMNS);
   return { data: row };
+}
+
+export async function handleUpdate(req: AuthenticatedRequest) {
+  const id = z.string().uuid().parse(req.params.id);
+  const body = UpdateClientBody.parse(req.body);
+  const patch: Record<string, unknown> = {};
+  for (const k of [
+    'name',
+    'email',
+    'billing_address',
+    'notes',
+    'default_rate_cents',
+  ] as const) {
+    if (k in body) patch[k] = body[k];
+  }
+  if (Object.keys(patch).length === 0) {
+    const row = await tdb('clients').where({ id }).select(CLIENT_COLUMNS).first();
+    if (!row) throw new AppError(404, 'Client not found');
+    return { data: row };
+  }
+  const rows = await tdb('clients').where({ id }).update(patch).returning(CLIENT_COLUMNS);
+  if (!rows.length) throw new AppError(404, 'Client not found');
+  return { data: rows[0] };
 }
 
 export async function handleDelete(req: AuthenticatedRequest) {
@@ -104,11 +189,25 @@ router.get(
   })
 );
 
+router.get(
+  '/:id',
+  tenantScope(async (req, res) => {
+    res.json(await handleGet(req));
+  })
+);
+
 router.post(
   '/',
   tenantScope(async (req, res) => {
     const result = await handleCreate(req);
     res.status(201).json(result);
+  })
+);
+
+router.patch(
+  '/:id',
+  tenantScope(async (req, res) => {
+    res.json(await handleUpdate(req));
   })
 );
 
@@ -120,4 +219,4 @@ router.delete(
 );
 
 export default router;
-export { CreateClientBody };
+export { CreateClientBody, UpdateClientBody };
