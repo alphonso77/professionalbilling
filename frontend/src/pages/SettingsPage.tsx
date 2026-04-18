@@ -15,6 +15,7 @@ import {
 import { TutorialStartButton } from "@/components/TutorialStartButton";
 import { useMe, useUpdateMe } from "@/hooks/use-me";
 import { useToast } from "@/hooks/use-toast";
+import { useTutorial } from "@/hooks/use-tutorial";
 import { ApiError } from "@/lib/api";
 import { formatCentsAsDollars, parseDollarsToCents } from "@/lib/utils";
 
@@ -34,6 +35,9 @@ export function SettingsPage() {
   const meQ = useMe();
   const updateMe = useUpdateMe();
   const { toast } = useToast();
+  const tutorial = useTutorial();
+  const showTutorialCard =
+    tutorial.state.hasCompletedTutorial && !tutorial.state.isActive;
 
   const form = useForm<SettingsFormValues>({
     resolver: zodResolver(settingsSchema),
@@ -108,17 +112,19 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Help &amp; Onboarding</CardTitle>
-          <CardDescription>
-            Replay the welcome tour to refresh the app's main sections.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <TutorialStartButton />
-        </CardContent>
-      </Card>
+      {showTutorialCard ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Help &amp; Onboarding</CardTitle>
+            <CardDescription>
+              Replay the welcome tour to refresh the app's main sections.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TutorialStartButton />
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

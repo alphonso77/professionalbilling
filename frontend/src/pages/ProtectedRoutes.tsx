@@ -37,6 +37,7 @@ export function ProtectedRoutes() {
               <Route path="docs/:slug" element={<DocsPage />} />
               <Route path="feedback" element={<FeedbackPage />} />
               <Route path="admin" element={<AdminPage />} />
+              {/* Alias for bookmarks from before the tabbed Admin refactor. */}
               <Route path="admin/users" element={<AdminPage />} />
               <Route path="*" element={<DashboardPage />} />
             </Route>

@@ -15,7 +15,6 @@ const TUTORIAL_STEPS: TutorialStep[] = [
       "A quick tour of the app — under a minute. We'll point out the main sections so you know where everything lives.",
     targetSelector: '[data-tutorial-target="header-logo"]',
     popoverPosition: "bottom",
-    route: "/",
     advanceOn: "manual",
   },
   {
@@ -65,9 +64,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
       "That's the tour. Replay it anytime from the Settings page — look for \"Replay tour\" at the bottom.",
     targetSelector: '[data-tutorial-target="header-logo"]',
     popoverPosition: "bottom",
-    route: "/",
     advanceOn: "manual",
-    nextLabel: "Finish",
   },
 ];
 

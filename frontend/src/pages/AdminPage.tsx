@@ -190,30 +190,18 @@ function FeedbackTriageRow({ row }: { row: FeedbackRow }) {
     setStatus(row.status);
   }, [row.admin_note, row.status]);
 
-  const dirty = note !== (row.admin_note ?? "") || status !== row.status;
+  const noteDirty = note !== (row.admin_note ?? "");
+  const statusDirty = status !== row.status;
+  const dirty = noteDirty || statusDirty;
 
-  const onStatusChange = async (next: FeedbackStatus) => {
-    setStatus(next);
+  const onSave = async () => {
+    const patch: { status?: FeedbackStatus; admin_note?: string | null } = {};
+    if (statusDirty) patch.status = status;
+    if (noteDirty) patch.admin_note = note.trim() === "" ? null : note;
+    if (Object.keys(patch).length === 0) return;
     try {
-      await update.mutateAsync({ id: row.id, patch: { status: next } });
-      toast({ title: "Status updated", description: STATUS_OPTIONS.find((o) => o.value === next)?.label });
-    } catch (err) {
-      toast({
-        variant: "destructive",
-        title: "Update failed",
-        description: err instanceof ApiError ? err.message : "Unexpected error",
-      });
-      setStatus(row.status);
-    }
-  };
-
-  const onSaveNote = async () => {
-    try {
-      await update.mutateAsync({
-        id: row.id,
-        patch: { admin_note: note.trim() === "" ? null : note },
-      });
-      toast({ title: "Note saved" });
+      await update.mutateAsync({ id: row.id, patch });
+      toast({ title: "Feedback updated" });
     } catch (err) {
       toast({
         variant: "destructive",
@@ -240,7 +228,7 @@ function FeedbackTriageRow({ row }: { row: FeedbackRow }) {
             className="flex h-9 rounded-md border border-[var(--color-input)] bg-[var(--color-background)] px-3 py-1 text-sm text-[var(--color-foreground)] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
             value={status}
             disabled={update.isPending}
-            onChange={(e) => onStatusChange(e.target.value as FeedbackStatus)}
+            onChange={(e) => setStatus(e.target.value as FeedbackStatus)}
           >
             {STATUS_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -283,10 +271,10 @@ function FeedbackTriageRow({ row }: { row: FeedbackRow }) {
             <Button
               type="button"
               size="sm"
-              disabled={update.isPending || note === (row.admin_note ?? "")}
-              onClick={onSaveNote}
+              disabled={update.isPending || !dirty}
+              onClick={onSave}
             >
-              {update.isPending ? "Saving…" : "Save note"}
+              {update.isPending ? "Saving…" : "Save changes"}
             </Button>
           </div>
         </div>

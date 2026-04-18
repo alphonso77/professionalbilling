@@ -18,12 +18,14 @@ import { useToast } from "@/hooks/use-toast";
 import { ApiError } from "@/lib/api";
 import type { FeedbackRow, FeedbackStatus, FeedbackType } from "@/types/api";
 
-const TYPE_OPTIONS: { value: FeedbackType; label: string }[] = [
-  { value: "bug", label: "Bug" },
-  { value: "feature", label: "Feature request" },
-  { value: "ui", label: "UI / UX" },
-  { value: "other", label: "Other" },
-];
+const TYPE_LABELS: Record<FeedbackType, string> = {
+  bug: "Bug",
+  feature: "Feature",
+  ui: "UI / UX",
+  other: "Other",
+};
+
+const TYPE_ORDER: FeedbackType[] = ["bug", "feature", "ui", "other"];
 
 const STATUS_LABELS: Record<FeedbackStatus, string> = {
   pending: "Pending",
@@ -38,13 +40,6 @@ const STATUS_CLASSES: Record<FeedbackStatus, string> = {
   clarification_requested:
     "bg-[var(--color-secondary)] text-[var(--color-secondary-foreground)]",
   resolved: "bg-[var(--color-primary)] text-[var(--color-primary-foreground)]",
-};
-
-const TYPE_LABELS: Record<FeedbackType, string> = {
-  bug: "Bug",
-  feature: "Feature",
-  ui: "UI / UX",
-  other: "Other",
 };
 
 const schema = z.object({
@@ -178,9 +173,9 @@ export function FeedbackPage() {
                 className="flex h-9 w-full rounded-md border border-[var(--color-input)] bg-[var(--color-background)] px-3 py-1 text-sm text-[var(--color-foreground)] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
                 {...form.register("type")}
               >
-                {TYPE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
+                {TYPE_ORDER.map((value) => (
+                  <option key={value} value={value}>
+                    {TYPE_LABELS[value]}
                   </option>
                 ))}
               </select>

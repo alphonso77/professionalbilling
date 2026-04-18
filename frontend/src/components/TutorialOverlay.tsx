@@ -28,6 +28,7 @@ export function TutorialOverlay() {
   const navigate = useNavigate();
   const location = useLocation();
   const [targetRect, setTargetRect] = React.useState<TargetRect | null>(null);
+  const [hasGivenUpMeasuring, setHasGivenUpMeasuring] = React.useState(false);
   const rafRef = React.useRef<number>(0);
   const rafCountRef = React.useRef<number>(0);
 
@@ -51,7 +52,7 @@ export function TutorialOverlay() {
       );
     } else {
       // Give up — popover will render centered as fallback.
-      setTargetRect(null);
+      setHasGivenUpMeasuring(true);
     }
   }, [currentStep]);
 
@@ -59,12 +60,26 @@ export function TutorialOverlay() {
     findAndMeasureRef.current = findAndMeasureTarget;
   }, [findAndMeasureTarget]);
 
-  // Reset rect + retry counter whenever the step changes.
-  React.useEffect(() => {
+  // Synchronous first-measurement on step or route change. Runs before paint,
+  // so when the target is already mounted (most cases) the popover renders at
+  // its final position on the first frame — no center-to-target flash.
+  React.useLayoutEffect(() => {
     if (!state.isActive || !currentStep) return;
-    setTargetRect(null);
     rafCountRef.current = 0;
-  }, [state.isActive, currentStep]);
+    setHasGivenUpMeasuring(false);
+    const el = document.querySelector(currentStep.targetSelector);
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      setTargetRect({
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+      });
+    } else {
+      setTargetRect(null);
+    }
+  }, [state.isActive, currentStep, location.pathname]);
 
   // Navigate to the step's route if needed.
   React.useEffect(() => {
@@ -74,7 +89,7 @@ export function TutorialOverlay() {
     }
   }, [state.isActive, currentStep, location.pathname, navigate]);
 
-  // Find + measure the target element after navigation/layout settles.
+  // Async re-measurement after navigation / layout settles, plus listeners.
   React.useEffect(() => {
     if (!state.isActive || !currentStep) return;
     const t1 = window.setTimeout(findAndMeasureTarget, 200);
@@ -174,6 +189,12 @@ export function TutorialOverlay() {
     popoverStyle.top = "50%";
     popoverStyle.left = "50%";
     popoverStyle.transform = "translate(-50%, -50%)";
+  }
+
+  // Hide the popover while the async measurement loop is still running for
+  // the current step — prevents a center-to-target flash on step change.
+  if (!targetRect && !hasGivenUpMeasuring) {
+    popoverStyle.visibility = "hidden";
   }
 
   return (

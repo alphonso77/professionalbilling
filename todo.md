@@ -36,6 +36,11 @@
 * feedback goes to our DB, surfaced in the admin area
 * optional: user-side area showing their submitted feedback + status (pending, acknowledged, clarification requested)
 
+### Phase 2D Feedback
+
+* there's a brief flash (quite noticible though) where the tutorial modal is first in the middle of the viewport, then it jumps to the area it's supposed to highlight
+* it should finish after the last step (rather than starting over)
+
 ## Pending
 
 ### Phase 2B — Complete DB reset (admin feature)
@@ -71,3 +76,25 @@
 * in order to demonstrate the feature, create a feature to generate raw data
     - generate raw csv with basic time logs
     - generate a raw text file with notes about meetings with clients and work done
+
+
+
+## Tracey Feedback
+
+* have a dropdown on the time entry modal, it les you choose a category that you've preconfigured with various rates
+* example: rate X is for research, rate Y is for in-court
+* categories are user-defined
+* have the ability to charge for hard costs - example: miles driven, filing fees
+* client data entry - add the ability to enter multiple emails that get cc'd when invoices are sent
+* feedback dropdown that says 'UI/UX' should be more generally understood
+* retainer feature: provide a way for the user to offer a retainer
+    - the user specifes a pre-paid amount
+    - the user's client, makes the pre-payment
+    - now the user can bill time against the pre-paid retainer
+    - this offers more flexibility for users to bill clients in a different way
+* offer a way for the user to allow partial payments on an invoice
+* offer a payment plan option to the user's customers
+    - don't use stripe subscriptions, that's not what this is meant for
+    - example: a client has an ongoing case, the customer's bills are piling up
+    - the customer can pay X dollars per month, and payments could get applied to the oldest invoice
+* does sales tax need to be handled?
