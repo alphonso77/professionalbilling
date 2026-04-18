@@ -302,6 +302,14 @@ export function InvoiceDetailPage() {
         />
       </div>
 
+      {inv.paymentUnavailableReason === "seed_requires_test_mode" ? (
+        <Card>
+          <CardContent className="py-3 text-sm text-[var(--color-muted-foreground)]">
+            Seeded invoice — payment is disabled because Stripe is in live mode.
+          </CardContent>
+        </Card>
+      ) : null}
+
       {inv.paymentUrl ? (
         <Card>
           <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">

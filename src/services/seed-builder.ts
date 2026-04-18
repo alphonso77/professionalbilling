@@ -228,6 +228,19 @@ export async function run(orgId: string, t: Tdb): Promise<SeedSummary> {
  * caveat — the user can delete the duplicate manually.
  */
 export async function removeSeeded(orgId: string, t: Tdb): Promise<SeedSummary> {
+  // Capture which years the seeded invoices span BEFORE deleting — we need
+  // this to reset the per-year sequence counter so real invoices don't
+  // inherit gaps left by the seed's consumed numbers.
+  const seededNumbers = (await t('invoices')
+    .where({ org_id: orgId })
+    .whereNotNull('seeded_at')
+    .select('number')) as Array<{ number: string | null }>;
+  const affectedYears = new Set<number>();
+  for (const { number } of seededNumbers) {
+    const m = number?.match(/^(\d{4})-\d+$/);
+    if (m) affectedYears.add(Number(m[1]));
+  }
+
   const invoices = (await t('invoices')
     .where({ org_id: orgId })
     .whereNotNull('seeded_at')
@@ -236,6 +249,26 @@ export async function removeSeeded(orgId: string, t: Tdb): Promise<SeedSummary> 
     .where({ org_id: orgId })
     .whereNotNull('seeded_at')
     .del()) as unknown as number;
+
+  if (affectedYears.size > 0) {
+    const remaining = (await t('invoices')
+      .where({ org_id: orgId })
+      .whereNotNull('number')
+      .select('number')) as Array<{ number: string | null }>;
+    for (const year of affectedYears) {
+      let maxSeq = 0;
+      for (const { number } of remaining) {
+        const m = number?.match(/^(\d{4})-(\d+)$/);
+        if (m && Number(m[1]) === year) {
+          const n = Number(m[2]);
+          if (n > maxSeq) maxSeq = n;
+        }
+      }
+      await t('invoice_sequences')
+        .where({ org_id: orgId, year })
+        .update({ next_seq: maxSeq + 1 });
+    }
+  }
 
   const seededClients = (await t('clients')
     .where({ org_id: orgId })

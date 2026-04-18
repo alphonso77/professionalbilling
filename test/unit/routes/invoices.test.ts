@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import type { Knex } from 'knex';
 
+import { env } from '../../../src/config/env';
 import {
   CreateInvoiceBody,
   UpdateInvoiceBody,
@@ -859,6 +860,44 @@ describe('routes/invoices — detail response does not leak credentials', () => 
 
     expect(payload.payment_token).to.equal(null);
     expect(payload.stripe_client_secret).to.equal(null);
+  });
+});
+
+describe('routes/invoices — handleGet seeded-invoice gating on live Stripe', () => {
+  const originalKey = env.STRIPE_SECRET_KEY;
+  afterEach(() => {
+    env.STRIPE_SECRET_KEY = originalKey;
+  });
+
+  it('returns payload with paymentUnavailableReason and null stripeClientSecret for a seeded open invoice in live mode', async () => {
+    env.STRIPE_SECRET_KEY = 'sk_live_abc';
+    const db = makeMockDb();
+    seedOrg(db);
+    seedClient(db, 'client_1');
+    db._seed('invoices', {
+      id: 'inv_seeded',
+      org_id: 'org_1',
+      client_id: 'client_1',
+      status: 'open',
+      number: '2026-0001',
+      total_cents: 10_000,
+      subtotal_cents: 10_000,
+      stripe_payment_intent_id: null,
+      stripe_client_secret: null,
+      payment_token: 'tok_seeded',
+      seeded_at: '2026-04-18T00:00:00Z',
+    });
+
+    const res = await handleGet('inv_seeded', db as any);
+    const body = res.data as {
+      stripeClientSecret: string | null;
+      paymentUnavailableReason?: string;
+      paymentUrl?: string;
+    };
+    expect(body.paymentUnavailableReason).to.equal('seed_requires_test_mode');
+    expect(body.stripeClientSecret).to.equal(null);
+    // paymentUrl still structurally surfaces for the org user.
+    expect(body.paymentUrl).to.match(/\/pay\/inv_seeded\?token=tok_seeded$/);
   });
 });
 

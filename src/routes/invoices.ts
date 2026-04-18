@@ -67,6 +67,7 @@ const InvoiceWithItemsSchema = InvoiceSchema.extend({
   stripePublishableKey: z.string().optional(),
   connectedAccountId: z.string().optional(),
   paymentUrl: z.string().optional(),
+  paymentUnavailableReason: z.literal('seed_requires_test_mode').optional(),
 }).openapi('InvoiceWithItems');
 
 const ListQuery = z.object({
@@ -214,7 +215,8 @@ function buildDetailPayload(
   lineItems: ReturnType<typeof serializeLineItem>[],
   client: { id: string; name: string; email: string | null },
   connectedAccountId: string | null,
-  paymentToken: string | null = null
+  paymentToken: string | null = null,
+  paymentUnavailableReason: 'seed_requires_test_mode' | null = null
 ) {
   const payload: Record<string, unknown> = {
     ...invoice,
@@ -232,6 +234,10 @@ function buildDetailPayload(
     if (paymentToken && env.FRONTEND_URL) {
       payload.paymentUrl = `${env.FRONTEND_URL}/pay/${invoice.id}?token=${paymentToken}`;
     }
+    if (paymentUnavailableReason) {
+      payload.paymentUnavailableReason = paymentUnavailableReason;
+      payload.stripeClientSecret = null;
+    }
   }
 
   return payload;
@@ -247,10 +253,19 @@ export async function handleList(
 export async function handleGet(id: string, t = tdb) {
   const { invoice, items, client } = await getInvoiceWithItems(id, t);
 
+  let paymentUnavailableReason: 'seed_requires_test_mode' | null = null;
   if (invoice.status === 'open' && !invoice.stripe_payment_intent_id) {
-    const ensured = await ensurePaymentIntent(id, t);
-    invoice.stripe_payment_intent_id = ensured.paymentIntentId;
-    invoice.stripe_client_secret = ensured.clientSecret;
+    try {
+      const ensured = await ensurePaymentIntent(id, t);
+      invoice.stripe_payment_intent_id = ensured.paymentIntentId;
+      invoice.stripe_client_secret = ensured.clientSecret;
+    } catch (err) {
+      if (err instanceof AppError && err.code === 'SEED_REQUIRES_TEST_MODE') {
+        paymentUnavailableReason = 'seed_requires_test_mode';
+      } else {
+        throw err;
+      }
+    }
   }
 
   let connectedAccountId: string | null = null;
@@ -267,7 +282,8 @@ export async function handleGet(id: string, t = tdb) {
       items.map(serializeLineItem),
       client,
       connectedAccountId,
-      invoice.payment_token
+      invoice.payment_token,
+      paymentUnavailableReason
     ),
   };
 }

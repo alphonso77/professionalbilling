@@ -1,5 +1,7 @@
 import { expect } from 'chai';
 
+import { env } from '../../../src/config/env';
+import { AppError } from '../../../src/middleware/error-handler';
 import { handleRemoveSeed, handleReseed, handleSeed } from '../../../src/routes/seed';
 
 type Row = Record<string, unknown>;
@@ -123,6 +125,14 @@ function makeMockDb() {
 }
 
 describe('routes/seed — handlers', () => {
+  const originalKey = env.STRIPE_SECRET_KEY;
+  beforeEach(() => {
+    env.STRIPE_SECRET_KEY = 'sk_test_abc123';
+  });
+  after(() => {
+    env.STRIPE_SECRET_KEY = originalKey;
+  });
+
   it('handleSeed returns seeded=true on a clean org', async () => {
     const db = makeMockDb();
     const { seeded, summary } = await handleSeed('org_1', db as any);
@@ -152,6 +162,44 @@ describe('routes/seed — handlers', () => {
   it('handleRemoveSeed deletes all seeded rows', async () => {
     const db = makeMockDb();
     await handleSeed('org_1', db as any);
+    const out = await handleRemoveSeed('org_1', db as any);
+    expect(out.clients).to.be.greaterThan(0);
+    expect(db._tables.clients).to.have.length(0);
+  });
+
+  it('handleSeed throws SEED_REQUIRES_TEST_MODE when Stripe is in live mode', async () => {
+    env.STRIPE_SECRET_KEY = 'sk_live_abc123';
+    const db = makeMockDb();
+    let caught: unknown;
+    try {
+      await handleSeed('org_1', db as any);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).to.be.instanceOf(AppError);
+    expect((caught as AppError).statusCode).to.equal(400);
+    expect((caught as AppError).code).to.equal('SEED_REQUIRES_TEST_MODE');
+    // No DB mutations occurred.
+    expect(db._tables.clients).to.have.length(0);
+  });
+
+  it('handleReseed throws SEED_REQUIRES_TEST_MODE when Stripe is in live mode', async () => {
+    env.STRIPE_SECRET_KEY = 'sk_live_xyz';
+    const db = makeMockDb();
+    let caught: unknown;
+    try {
+      await handleReseed('org_1', db as any);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).to.be.instanceOf(AppError);
+    expect((caught as AppError).code).to.equal('SEED_REQUIRES_TEST_MODE');
+  });
+
+  it('handleRemoveSeed succeeds even in live mode (cleanup must always be possible)', async () => {
+    const db = makeMockDb();
+    await handleSeed('org_1', db as any); // seeded while in test mode
+    env.STRIPE_SECRET_KEY = 'sk_live_flipped';
     const out = await handleRemoveSeed('org_1', db as any);
     expect(out.clients).to.be.greaterThan(0);
     expect(db._tables.clients).to.have.length(0);

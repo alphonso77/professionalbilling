@@ -1,5 +1,6 @@
 import { expect } from 'chai';
 
+import { env } from '../../../src/config/env';
 import { ensurePaymentIntent } from '../../../src/services/ensure-payment-intent';
 import { AppError } from '../../../src/middleware/error-handler';
 
@@ -55,6 +56,14 @@ function makeMockDb() {
 }
 
 describe('services/ensure-payment-intent', () => {
+  const originalKey = env.STRIPE_SECRET_KEY;
+  beforeEach(() => {
+    env.STRIPE_SECRET_KEY = 'sk_test_default';
+  });
+  after(() => {
+    env.STRIPE_SECRET_KEY = originalKey;
+  });
+
   it('returns the existing PI + secret when already set (no Stripe call)', async () => {
     const db = makeMockDb();
     db._seed('invoices', {
@@ -157,5 +166,93 @@ describe('services/ensure-payment-intent', () => {
     }
     expect(caught).to.be.instanceOf(AppError);
     expect((caught as AppError).statusCode).to.equal(404);
+  });
+
+  it('throws SEED_REQUIRES_TEST_MODE 503 on a seeded invoice when Stripe is in live mode', async () => {
+    env.STRIPE_SECRET_KEY = 'sk_live_abc';
+    const db = makeMockDb();
+    db._seed('invoices', {
+      id: 'inv_seeded',
+      org_id: 'org_1',
+      client_id: 'c1',
+      status: 'open',
+      total_cents: 10_000,
+      stripe_payment_intent_id: null,
+      stripe_client_secret: null,
+      number: '2026-0001',
+      seeded_at: '2026-04-18T00:00:00Z',
+    });
+
+    let caught: unknown;
+    try {
+      await ensurePaymentIntent('inv_seeded', db as any, {
+        createPaymentIntent: async () => ({ paymentIntentId: 'x', clientSecret: 'y' }),
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).to.be.instanceOf(AppError);
+    expect((caught as AppError).statusCode).to.equal(503);
+    expect((caught as AppError).code).to.equal('SEED_REQUIRES_TEST_MODE');
+  });
+
+  it('creates a PI normally on a seeded invoice when Stripe is in test mode', async () => {
+    env.STRIPE_SECRET_KEY = 'sk_test_ok';
+    const db = makeMockDb();
+    db._seed('invoices', {
+      id: 'inv_seeded_ok',
+      org_id: 'org_1',
+      client_id: 'c1',
+      status: 'open',
+      total_cents: 10_000,
+      stripe_payment_intent_id: null,
+      stripe_client_secret: null,
+      number: '2026-0002',
+      seeded_at: '2026-04-18T00:00:00Z',
+    });
+    db._seed('platforms', {
+      org_id: 'org_1',
+      type: 'stripe',
+      external_account_id: 'acct_abc',
+      credentials_encrypted: null,
+      credentials_iv: null,
+      credentials_tag: null,
+    });
+    db._seed('clients', { id: 'c1', email: 'bill@example.com' });
+
+    const result = await ensurePaymentIntent('inv_seeded_ok', db as any, {
+      createPaymentIntent: async () => ({ paymentIntentId: 'pi_new', clientSecret: 'cs_new' }),
+    });
+    expect(result.paymentIntentId).to.equal('pi_new');
+  });
+
+  it('creates a PI normally on a non-seeded invoice in live mode (guard is seeded-only)', async () => {
+    env.STRIPE_SECRET_KEY = 'sk_live_ok';
+    const db = makeMockDb();
+    db._seed('invoices', {
+      id: 'inv_real',
+      org_id: 'org_1',
+      client_id: 'c1',
+      status: 'open',
+      total_cents: 10_000,
+      stripe_payment_intent_id: null,
+      stripe_client_secret: null,
+      number: '2026-0003',
+      seeded_at: null,
+    });
+    db._seed('platforms', {
+      org_id: 'org_1',
+      type: 'stripe',
+      external_account_id: 'acct_live',
+      credentials_encrypted: null,
+      credentials_iv: null,
+      credentials_tag: null,
+    });
+    db._seed('clients', { id: 'c1', email: 'real@customer.com' });
+
+    const result = await ensurePaymentIntent('inv_real', db as any, {
+      createPaymentIntent: async () => ({ paymentIntentId: 'pi_live', clientSecret: 'cs_live' }),
+    });
+    expect(result.paymentIntentId).to.equal('pi_live');
   });
 });

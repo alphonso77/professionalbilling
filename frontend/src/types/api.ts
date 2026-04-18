@@ -160,6 +160,7 @@ export interface InvoiceWithItems extends Invoice {
   stripePublishableKey?: string;
   connectedAccountId?: string;
   paymentUrl?: string;
+  paymentUnavailableReason?: "seed_requires_test_mode";
 }
 
 export interface SendInvoiceResponse {

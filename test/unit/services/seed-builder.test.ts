@@ -289,4 +289,102 @@ describe('services/seed-builder', () => {
     expect(acmeAfter.seeded_at).to.equal(null);
     expect(globexAfter.seeded_at).to.equal(null);
   });
+
+  it('removeSeeded rewinds invoice_sequences.next_seq when only seeded invoices exist in a year', async () => {
+    const db = makeMockDb();
+    await run('org_1', db as any);
+
+    const year = new Date().getUTCFullYear();
+    const seqBefore = db._tables.invoice_sequences.find(
+      (r) => r.org_id === 'org_1' && r.year === year
+    ) as Row;
+    expect(seqBefore, 'seed created an invoice_sequences row').to.not.be.undefined;
+    expect(seqBefore.next_seq).to.equal(4); // 3 invoices consumed 1,2,3 → next is 4
+
+    await removeSeeded('org_1', db as any);
+
+    const seqAfter = db._tables.invoice_sequences.find(
+      (r) => r.org_id === 'org_1' && r.year === year
+    ) as Row;
+    expect(seqAfter.next_seq).to.equal(1);
+  });
+
+  it('removeSeeded rewinds next_seq to max(real)+1 when real invoices coexist', async () => {
+    const db = makeMockDb();
+    const year = new Date().getUTCFullYear();
+
+    db._tables.invoices.push({
+      id: 'real-inv',
+      org_id: 'org_1',
+      client_id: 'real-client',
+      status: 'open',
+      total_cents: 5_000,
+      number: `${year}-0001`,
+      seeded_at: null,
+    });
+    db._tables.invoice_sequences.push({ org_id: 'org_1', year, next_seq: 2 });
+
+    await run('org_1', db as any);
+
+    const seqMid = db._tables.invoice_sequences.find(
+      (r) => r.org_id === 'org_1' && r.year === year
+    ) as Row;
+    expect(seqMid.next_seq).to.equal(5); // real=1, seed=2,3,4 → next=5
+
+    await removeSeeded('org_1', db as any);
+
+    const seqAfter = db._tables.invoice_sequences.find(
+      (r) => r.org_id === 'org_1' && r.year === year
+    ) as Row;
+    expect(seqAfter.next_seq).to.equal(2); // real invoice 0001 remains → next_seq back to 2
+  });
+
+  it('removeSeeded resets sequences across multiple affected years independently', async () => {
+    const db = makeMockDb();
+
+    db._tables.invoices.push({
+      id: 'seed-2025',
+      org_id: 'org_1',
+      client_id: 'c-2025',
+      status: 'open',
+      total_cents: 5_000,
+      number: '2025-0001',
+      seeded_at: '2026-04-01T00:00:00Z',
+    });
+    db._tables.invoice_sequences.push({ org_id: 'org_1', year: 2025, next_seq: 2 });
+    db._tables.clients.push({
+      id: 'c-2025',
+      org_id: 'org_1',
+      name: 'OldClient',
+      seeded_at: '2026-04-01T00:00:00Z',
+    });
+
+    await run('org_1', db as any);
+    const currentYear = new Date().getUTCFullYear();
+
+    await removeSeeded('org_1', db as any);
+
+    const seq2025 = db._tables.invoice_sequences.find(
+      (r) => r.org_id === 'org_1' && r.year === 2025
+    ) as Row;
+    const seqCurrent = db._tables.invoice_sequences.find(
+      (r) => r.org_id === 'org_1' && r.year === currentYear
+    ) as Row;
+    expect(seq2025.next_seq).to.equal(1);
+    expect(seqCurrent.next_seq).to.equal(1);
+  });
+
+  it('removeSeeded does not touch invoice_sequences when no seeded invoices exist', async () => {
+    const db = makeMockDb();
+    const year = new Date().getUTCFullYear();
+
+    db._tables.invoice_sequences.push({ org_id: 'org_1', year, next_seq: 42 });
+
+    await removeSeeded('org_1', db as any);
+
+    const seq = db._tables.invoice_sequences.find(
+      (r) => r.org_id === 'org_1' && r.year === year
+    ) as Row;
+    expect(seq.next_seq).to.equal(42);
+  });
 });

@@ -1,6 +1,7 @@
 import type { Knex } from 'knex';
 
 import { AppError } from '../middleware/error-handler';
+import { isStripeTestMode } from '../utils/stripe-mode';
 import {
   createInvoicePaymentIntent,
   resolveConnectedAccountId,
@@ -26,6 +27,7 @@ interface InvoiceRow {
   stripe_payment_intent_id: string | null;
   stripe_client_secret: string | null;
   client_id: string;
+  seeded_at: string | Date | null;
 }
 
 /**
@@ -52,6 +54,14 @@ export async function ensurePaymentIntent(
       paymentIntentId: invoice.stripe_payment_intent_id,
       clientSecret: invoice.stripe_client_secret,
     };
+  }
+
+  if (invoice.seeded_at != null && !isStripeTestMode()) {
+    throw new AppError(
+      503,
+      'Seeded invoices require Stripe test mode',
+      'SEED_REQUIRES_TEST_MODE'
+    );
   }
 
   // Scope platforms by org_id explicitly: this fn is also called from the

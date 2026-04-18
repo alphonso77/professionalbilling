@@ -5,6 +5,8 @@ import { registry } from '../openapi/registry';
 import { requireEasterEgg } from '../middleware/require-easter-egg';
 import { tdb } from '../config/tenant-context';
 import { hasSeededData, removeSeeded, run, type SeedSummary } from '../services/seed-builder';
+import { AppError } from '../middleware/error-handler';
+import { isStripeTestMode } from '../utils/stripe-mode';
 
 const router = Router();
 
@@ -56,7 +58,18 @@ registry.registerPath({
   },
 });
 
+function assertStripeTestMode(): void {
+  if (!isStripeTestMode()) {
+    throw new AppError(
+      400,
+      'Seeding requires Stripe test mode. Set STRIPE_SECRET_KEY to sk_test_… and redeploy.',
+      'SEED_REQUIRES_TEST_MODE'
+    );
+  }
+}
+
 export async function handleSeed(orgId: string, t = tdb): Promise<{ seeded: boolean; summary: SeedSummary }> {
+  assertStripeTestMode();
   if (await hasSeededData(orgId, t)) {
     return {
       seeded: false,
@@ -68,6 +81,7 @@ export async function handleSeed(orgId: string, t = tdb): Promise<{ seeded: bool
 }
 
 export async function handleReseed(orgId: string, t = tdb): Promise<SeedSummary> {
+  assertStripeTestMode();
   await removeSeeded(orgId, t);
   return run(orgId, t);
 }
