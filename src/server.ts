@@ -21,6 +21,7 @@ import docsRoutes from './routes/docs';
 import meRoutes from './routes/me';
 import clientsRoutes from './routes/clients';
 import timeEntriesRoutes from './routes/time-entries';
+import platformsRoutes from './routes/platforms';
 import { generateOpenApiDocument } from './openapi/generate';
 
 const app = express();
@@ -100,6 +101,7 @@ app.use('/api/me', requireOrg(), meRoutes);
 app.use('/api/docs', requireOrg(), docsRoutes);
 app.use('/api/clients', requireOrg(), clientsRoutes);
 app.use('/api/time-entries', requireOrg(), timeEntriesRoutes);
+app.use('/api/platforms', requireOrg(), platformsRoutes);
 
 // ---- Error handler (last) ----
 app.use(errorHandler);

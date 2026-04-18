@@ -8,14 +8,32 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { useAuthorizeStripe } from "@/hooks/use-oauth";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  useAuthorizeStripe,
+  useDisconnectStripe,
+  usePlatforms,
+} from "@/hooks/use-oauth";
 import { useToast } from "@/hooks/use-toast";
 import { ApiError } from "@/lib/api";
+import type { Platform } from "@/types/api";
 
 export function IntegrationsPage() {
   const authorize = useAuthorizeStripe();
+  const platformsQ = usePlatforms();
+  const disconnect = useDisconnectStripe();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
   const { toast } = useToast();
 
   React.useEffect(() => {
@@ -31,6 +49,10 @@ export function IntegrationsPage() {
     }
   }, [searchParams, setSearchParams, toast]);
 
+  const stripePlatform: Platform | undefined = platformsQ.data?.find(
+    (p) => p.type === "stripe",
+  );
+
   const handleConnect = async () => {
     try {
       const res = await authorize.mutateAsync();
@@ -39,6 +61,24 @@ export function IntegrationsPage() {
       toast({
         variant: "destructive",
         title: "Could not start Stripe OAuth",
+        description: err instanceof ApiError ? err.message : "Unexpected error",
+      });
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (!stripePlatform) return;
+    try {
+      await disconnect.mutateAsync(stripePlatform.id);
+      toast({
+        variant: "success",
+        title: "Stripe disconnected.",
+      });
+      setConfirmOpen(false);
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Could not disconnect Stripe",
         description: err instanceof ApiError ? err.message : "Unexpected error",
       });
     }
@@ -59,19 +99,65 @@ export function IntegrationsPage() {
               <CreditCard className="h-5 w-5" />
             </div>
             <div>
-              <CardTitle>Stripe</CardTitle>
+              <CardTitle>
+                {stripePlatform ? "Connected to Stripe" : "Stripe"}
+              </CardTitle>
               <CardDescription>
                 Collect payments and issue hosted invoices via Stripe Connect.
               </CardDescription>
             </div>
           </div>
         </CardHeader>
-        <CardContent>
-          <Button onClick={handleConnect} disabled={authorize.isPending}>
-            {authorize.isPending ? "Redirecting…" : "Connect Stripe"}
-          </Button>
+        <CardContent className="space-y-3">
+          {platformsQ.isLoading ? (
+            <div className="h-9 w-40 animate-pulse rounded-md bg-[var(--color-accent)]" />
+          ) : stripePlatform ? (
+            <>
+              <p className="text-xs text-[var(--color-muted-foreground)]">
+                Account: {stripePlatform.external_account_id}
+              </p>
+              <Button
+                variant="destructive"
+                onClick={() => setConfirmOpen(true)}
+                disabled={disconnect.isPending}
+              >
+                {disconnect.isPending ? "Disconnecting…" : "Disconnect"}
+              </Button>
+            </>
+          ) : (
+            <Button onClick={handleConnect} disabled={authorize.isPending}>
+              {authorize.isPending ? "Redirecting…" : "Connect Stripe"}
+            </Button>
+          )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect Stripe?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You'll need to re-authorize Stripe to receive payments and webhook
+              events. This does not cancel existing invoices on Stripe's side.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={disconnect.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className={buttonVariants({ variant: "destructive" })}
+              disabled={disconnect.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                handleDisconnect();
+              }}
+            >
+              {disconnect.isPending ? "Disconnecting…" : "Disconnect"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

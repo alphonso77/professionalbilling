@@ -82,3 +82,11 @@ export type DocsRegistry = {
 export type OAuthAuthorizeResponse = {
   url: string;
 };
+
+export type Platform = {
+  id: string;
+  type: string;
+  external_account_id: string;
+  created_at: string;
+  updated_at: string;
+};
