@@ -20,14 +20,31 @@ const PUBLIC_INVOICE_KEY = (id: string, token: string) =>
 type InvoiceFilters = {
   status?: InvoiceStatus;
   clientId?: string;
+  pendingApproval?: boolean;
 };
 
 export function useInvoices(filters: InvoiceFilters = {}) {
   const { call, orgId } = useApi();
+  const query = buildQuery({
+    status: filters.status,
+    clientId: filters.clientId,
+    pendingApproval: filters.pendingApproval ? "true" : undefined,
+  });
   return useQuery({
     queryKey: [...LIST_KEY, orgId, filters],
     enabled: !!orgId,
-    queryFn: () => call<Invoice[]>("GET", `/api/invoices${buildQuery(filters)}`),
+    queryFn: () => call<Invoice[]>("GET", `/api/invoices${query}`),
+  });
+}
+
+export function usePendingApprovalCount() {
+  const { call, orgId } = useApi();
+  return useQuery({
+    queryKey: [...LIST_KEY, orgId, { pendingApproval: true }],
+    enabled: !!orgId,
+    queryFn: () =>
+      call<Invoice[]>("GET", `/api/invoices${buildQuery({ pendingApproval: "true" })}`),
+    select: (data) => data.length,
   });
 }
 
@@ -115,6 +132,32 @@ export function useVoidInvoice(id: string) {
     mutationFn: () => call<Invoice>("POST", `/api/invoices/${id}/void`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: DETAIL_KEY(id) });
+      qc.invalidateQueries({ queryKey: LIST_KEY });
+      qc.invalidateQueries({ queryKey: UNBILLED_KEY });
+    },
+  });
+}
+
+export function useApproveSendInvoice() {
+  const { call } = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      call<InvoiceWithItems>("POST", `/api/invoices/${id}/approve-send`),
+    onSuccess: (_res, id) => {
+      qc.invalidateQueries({ queryKey: DETAIL_KEY(id) });
+      qc.invalidateQueries({ queryKey: LIST_KEY });
+    },
+  });
+}
+
+export function useRejectInvoiceApproval() {
+  const { call } = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      call<{ deleted: boolean }>("POST", `/api/invoices/${id}/reject-approval`),
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: LIST_KEY });
       qc.invalidateQueries({ queryKey: UNBILLED_KEY });
     },

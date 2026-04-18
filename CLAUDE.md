@@ -49,6 +49,14 @@ Frontend (from `/frontend`):
 
 All user-facing help text lives in `corporate.docs_registry` (seeded). Frontend reads via `GET /api/docs` + `DocsRegistryContext`. UI wires with `<InfoBubble registryKey="..." />` → click opens `<InfoModal>` → "Read more" links to `/docs/:slug` full page. Never hardcode explanatory text in components.
 
+## Onboarding tutorial
+
+Spotlight-style overlay (`frontend/src/components/TutorialOverlay.tsx`), steps defined as data in `frontend/src/lib/tutorial-context.tsx`. Auto-opens on first mount of `ProtectedRoutes` for any user without a localStorage completion flag. Modeled after IntegraSentry's implementation (not in this workspace; fetch via `gh repo clone alphonso77/integrasentry` if you need the reference).
+
+- **Persistence:** localStorage only, key `professionalbilling.tutorial`, shape `{ hasCompletedTutorial: boolean }`. Skip / ESC / Finish all set it to `true`. No cross-device sync by design — re-shows on each new browser.
+- **Step targeting:** `targetSelector` is a CSS selector, conventionally `[data-tutorial-target="<id>"]`. Add the attribute to new nav items via the optional `tutorialTarget` field on `NavItem` in `AppShell.tsx`. Measurement uses `useLayoutEffect` for a synchronous first pass (prevents center-to-target flash) with a `requestAnimationFrame` retry loop fallback when the target isn't yet in the DOM; popover is `visibility: hidden` while the async retry is in flight.
+- **Replay:** `<TutorialStartButton />` on `SettingsPage.tsx` — renders only when `hasCompletedTutorial && !isActive`, and the whole "Help & Onboarding" card is hidden when the button would render null.
+
 ## Money & rates
 
 All monetary values in the DB and at the API boundary are **non-negative integer cents** (`hourly_rate_cents`, `rate_cents`, `default_rate_cents`, invoice totals). Zod schemas enforce `.int().nonnegative()` at request bodies.
@@ -82,7 +90,7 @@ Status flow: `draft` → `open` → `paid` (or `void` from any pre-paid state). 
 ## Admin + easter egg
 
 Two boolean flags on `users`:
-- `is_admin` — gates `/admin/users` (frontend) and `/api/admin/*` (backend via `requireAdmin` middleware, which loads `users.is_admin` via `tdb`). Founder bootstrap via `datastore/seeds/{development,production}/01_admin_bootstrap.js` — idempotent UPDATE setting `is_admin = true` for `founder@fratellisoftware.com`. Run `npm run seed` once after the founder signs up. Admins can toggle `is_admin` and `easter_egg_enabled` on any user in their org via `PATCH /api/admin/users/:id`. Last-admin guard returns 400 `LAST_ADMIN` to prevent org lockout.
+- `is_admin` — gates `/admin` (frontend) and `/api/admin/*` (backend via `requireAdmin` middleware, which loads `users.is_admin` via `tdb`). Founder bootstrap via `datastore/seeds/{development,production}/01_admin_bootstrap.js` — idempotent UPDATE setting `is_admin = true` for `founder@fratellisoftware.com`. Run `npm run seed` once after the founder signs up. Admins can toggle `is_admin` and `easter_egg_enabled` on any user in their org via `PATCH /api/admin/users/:id`. Last-admin guard returns 400 `LAST_ADMIN` to prevent org lockout. `AdminPage.tsx` is a tabbed surface (Users + Feedback); `/admin/users` is kept as an alias route for bookmarks from before the refactor.
 - `easter_egg_enabled` — renders a pure-CSS π in the header cluster (`opacity-0 hover:opacity-40 transition`). Click opens the Seed modal. Server-side `requireEasterEgg` middleware mirrors the visibility gate.
 
 `AppError` supports an optional `code` (3rd constructor arg). When set, the global error handler emits `{ error: { message, code } }`; otherwise it emits the legacy `{ error: message }` shape. New gates (`requireAdmin`, `requireEasterEgg`) use codes; older throw sites still use the flat shape — both coexist.
@@ -110,6 +118,14 @@ Easter-egg-gated (`src/routes/seed.ts`, `src/services/seed-builder.ts`). Inserts
 - `DELETE /api/clients/:id` refuses with `409 CLIENT_HAS_HISTORY` if the client has any invoices or time entries — `invoices.client_id` is `ON DELETE RESTRICT`, so unguarded delete would 500. Body: `{ error: { message, code: 'CLIENT_HAS_HISTORY' } }` with counts in the message.
 - `?force=true` cascades (deletes invoices + time_entries + client, and purges the deleted invoices' `audit_log` rows in `invoice.send` / `invoice-email` sources) — but ONLY for seeded clients (`seeded_at IS NOT NULL`). Non-seeded + force → `400 FORCE_NOT_ALLOWED`. Mirrors `removeSeeded`'s cleanup policy.
 - There is intentionally **no invoice-delete UI** for non-seeded invoices. `void` is the terminal transition for unwanted open invoices; paid invoices stay forever. Clients that accumulate real history cannot be deleted — that's the immutable-record contract real customers depend on.
+
+## User feedback
+
+Generic in-app feedback capture: bug / feature / ui / other. Per-org, RLS-protected. Users submit + see their own list at `/feedback`; org admins triage in the Feedback tab of `/admin`.
+
+- **Table:** `feedback (id, org_id, user_id, type, subject, body, status, admin_note, created_at, updated_at)`. Type enum: `bug | feature | ui | other`. Status enum: `pending | acknowledged | clarification_requested | resolved` — admin-controlled, user-visible. `updated_at` bumped by `corporate.update_modified_at()` trigger. RLS `tenant_isolation` policy follows the standard pattern.
+- **Routes:** `POST /api/feedback`, `GET /api/feedback` (filtered to `user_id = req.userId` on top of RLS, so user A never sees user B's rows). Admin: `GET /api/admin/feedback` (joins `users.email` as `submitter_email`), `PATCH /api/admin/feedback/:id` accepting `{ status?, admin_note? }`. Admin saves are unified — status and note persist together through one dirty-tracking form; status flips do not auto-persist.
+- **Cross-org visibility is out of scope by design.** Each org admin sees only their org's feedback; the founder's own testing feedback lives in the founder's org. A `corporate.user_feedback` table or super-admin role can be added later if cross-org product feedback becomes useful.
 
 ## Public (unauthenticated) routes
 

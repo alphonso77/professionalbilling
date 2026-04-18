@@ -34,6 +34,8 @@ export const INVOICE_EMAIL_QUEUE = 'invoice-email';
 
 export interface InvoiceEmailJobData {
   invoiceId: string;
+  reminder?: boolean;
+  reminderNumber?: number;
 }
 
 let _invoiceEmailQueue: Queue<InvoiceEmailJobData> | null = null;

@@ -5,8 +5,10 @@ import { env } from '../../../src/config/env';
 import {
   CreateInvoiceBody,
   UpdateInvoiceBody,
+  handleApproveSend,
   handleGet,
   handleList,
+  handleRejectApproval,
   handleSend,
 } from '../../../src/routes/invoices';
 import {
@@ -898,6 +900,129 @@ describe('routes/invoices — handleGet seeded-invoice gating on live Stripe', (
     expect(body.stripeClientSecret).to.equal(null);
     // paymentUrl still structurally surfaces for the org user.
     expect(body.paymentUrl).to.match(/\/pay\/inv_seeded\?token=tok_seeded$/);
+  });
+});
+
+describe('routes/invoices — handleApproveSend guards', () => {
+  it('throws NOT_AR_GENERATED when auto_generated_at is null', async () => {
+    const db = makeMockDb();
+    seedOrg(db);
+    seedClient(db, 'client_1');
+    db._seed('invoices', {
+      id: 'inv_manual',
+      org_id: 'org_1',
+      client_id: 'client_1',
+      status: 'draft',
+      auto_generated_at: null,
+      total_cents: 10_000,
+      subtotal_cents: 10_000,
+    });
+
+    let caught: unknown;
+    try {
+      await handleApproveSend('inv_manual', 'org_1', db as any, async () => {});
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).to.be.instanceOf(AppError);
+    expect((caught as AppError).statusCode).to.equal(400);
+    expect((caught as AppError).code).to.equal('NOT_AR_GENERATED');
+  });
+
+  it('throws INVALID_STATUS when invoice is not draft', async () => {
+    const db = makeMockDb();
+    seedOrg(db);
+    seedClient(db, 'client_1');
+    db._seed('invoices', {
+      id: 'inv_open',
+      org_id: 'org_1',
+      client_id: 'client_1',
+      status: 'open',
+      auto_generated_at: '2026-04-18T00:00:00Z',
+      total_cents: 10_000,
+      subtotal_cents: 10_000,
+    });
+
+    let caught: unknown;
+    try {
+      await handleApproveSend('inv_open', 'org_1', db as any, async () => {});
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).to.be.instanceOf(AppError);
+    expect((caught as AppError).statusCode).to.equal(400);
+    expect((caught as AppError).code).to.equal('INVALID_STATUS');
+  });
+
+  it('returns 404 when invoice does not exist', async () => {
+    const db = makeMockDb();
+    let caught: unknown;
+    try {
+      await handleApproveSend('missing', 'org_1', db as any, async () => {});
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).to.be.instanceOf(AppError);
+    expect((caught as AppError).statusCode).to.equal(404);
+  });
+});
+
+describe('routes/invoices — handleRejectApproval guards', () => {
+  it('throws NOT_AR_GENERATED when auto_generated_at is null', async () => {
+    const db = makeMockDb();
+    db._seed('invoices', {
+      id: 'inv_manual',
+      org_id: 'org_1',
+      client_id: 'client_1',
+      status: 'draft',
+      auto_generated_at: null,
+    });
+
+    let caught: unknown;
+    try {
+      await handleRejectApproval('inv_manual', db as any);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).to.be.instanceOf(AppError);
+    expect((caught as AppError).statusCode).to.equal(400);
+    expect((caught as AppError).code).to.equal('NOT_AR_GENERATED');
+  });
+
+  it('throws INVALID_STATUS when invoice is not draft', async () => {
+    const db = makeMockDb();
+    db._seed('invoices', {
+      id: 'inv_open',
+      org_id: 'org_1',
+      client_id: 'client_1',
+      status: 'open',
+      auto_generated_at: '2026-04-18T00:00:00Z',
+    });
+
+    let caught: unknown;
+    try {
+      await handleRejectApproval('inv_open', db as any);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).to.be.instanceOf(AppError);
+    expect((caught as AppError).statusCode).to.equal(400);
+    expect((caught as AppError).code).to.equal('INVALID_STATUS');
+  });
+
+  it('deletes the draft and returns { deleted: true } on the happy path', async () => {
+    const db = makeMockDb();
+    db._seed('invoices', {
+      id: 'inv_ar',
+      org_id: 'org_1',
+      client_id: 'client_1',
+      status: 'draft',
+      auto_generated_at: '2026-04-18T00:00:00Z',
+    });
+
+    const res = await handleRejectApproval('inv_ar', db as any);
+    expect(res).to.deep.equal({ data: { deleted: true } });
+    expect(db._tables.invoices.find((i) => i.id === 'inv_ar')).to.equal(undefined);
   });
 });
 

@@ -62,10 +62,16 @@ function formatDueDate(d: string | Date | null): string {
   return iso;
 }
 
+export interface InvoiceEmailOptions {
+  reminder?: boolean;
+  reminderNumber?: number;
+}
+
 export async function sendInvoiceEmail(
   invoiceId: string,
   database: Knex = db,
-  sender: EmailSender = resendSender()
+  sender: EmailSender = resendSender(),
+  options: InvoiceEmailOptions = {}
 ): Promise<'sent' | 'skipped_no_email' | 'skipped_not_open'> {
   const invoice = (await database('invoices')
     .where({ id: invoiceId })
@@ -96,18 +102,38 @@ export async function sendInvoiceEmail(
   const due = formatDueDate(invoice.due_date);
   const payUrl = `${env.FRONTEND_URL}/pay/${invoice.id}?token=${invoice.payment_token}`;
 
-  const subject = `Invoice ${invoice.number} from ${orgName}`;
-  const text = [
-    `Hi ${client.name},`,
-    '',
-    `Your invoice ${invoice.number} for ${total} is ready.`,
-    `Due: ${due}`,
-    '',
-    `Pay online: ${payUrl}`,
-    '',
-    'Thanks,',
-    orgName,
-  ].join('\n');
+  const isReminder = options.reminder === true;
+  const reminderNumber = options.reminderNumber ?? 1;
+
+  const subject = isReminder
+    ? `Reminder: Invoice ${invoice.number} from ${orgName}`
+    : `Invoice ${invoice.number} from ${orgName}`;
+
+  const text = isReminder
+    ? [
+        `Hi ${client.name},`,
+        '',
+        `This is reminder #${reminderNumber} that invoice ${invoice.number} for ${total} is still outstanding.`,
+        `Original due date: ${due}`,
+        '',
+        `Pay online: ${payUrl}`,
+        '',
+        'If you have already paid, please disregard this message.',
+        '',
+        'Thanks,',
+        orgName,
+      ].join('\n')
+    : [
+        `Hi ${client.name},`,
+        '',
+        `Your invoice ${invoice.number} for ${total} is ready.`,
+        `Due: ${due}`,
+        '',
+        `Pay online: ${payUrl}`,
+        '',
+        'Thanks,',
+        orgName,
+      ].join('\n');
 
   const from = env.RESEND_FROM_ADDRESS;
   const result = await sender.send({ from, to: client.email, subject, text });
@@ -115,13 +141,22 @@ export async function sendInvoiceEmail(
   await database('audit_log').insert({
     source: 'invoice-email',
     org_id: invoice.org_id,
-    event_type: 'invoice.email.sent',
+    event_type: isReminder ? 'invoice.reminder.sent' : 'invoice.email.sent',
     external_id: invoice.id,
     status: 'processed',
-    payload: { to: client.email, subject, resendId: (result && 'id' in result && result.id) || null },
+    payload: {
+      to: client.email,
+      subject,
+      resendId: (result && 'id' in result && result.id) || null,
+      ...(isReminder ? { reminderNumber } : {}),
+    },
   });
 
-  logger.info('Invoice email sent', { invoiceId, to: client.email });
+  logger.info(isReminder ? 'Invoice reminder sent' : 'Invoice email sent', {
+    invoiceId,
+    to: client.email,
+    ...(isReminder ? { reminderNumber } : {}),
+  });
   return 'sent';
 }
 
@@ -130,16 +165,20 @@ export async function processInvoiceEmailJob(
   database: Knex = db,
   sender?: EmailSender
 ): Promise<void> {
-  const { invoiceId } = job.data;
+  const { invoiceId, reminder, reminderNumber } = job.data;
   try {
-    await sendInvoiceEmail(invoiceId, database, sender);
+    const resolvedSender = sender ?? resendSender();
+    await sendInvoiceEmail(invoiceId, database, resolvedSender, {
+      reminder,
+      reminderNumber,
+    });
   } catch (err) {
     const message = (err as Error).message;
     logger.error('invoice-email worker: send failed', { invoiceId, err: message });
     await database('audit_log')
       .insert({
         source: 'invoice-email',
-        event_type: 'invoice.email.send',
+        event_type: reminder ? 'invoice.reminder.send' : 'invoice.email.send',
         external_id: invoiceId,
         status: 'error',
         error_detail: message,

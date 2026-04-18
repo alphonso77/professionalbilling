@@ -29,6 +29,7 @@ import {
   useDeleteClient,
   useUpdateClient,
 } from "@/hooks/use-clients";
+import { useArSettings } from "@/hooks/use-ar-settings";
 import { useToast } from "@/hooks/use-toast";
 import { ApiError } from "@/lib/api";
 import {
@@ -54,10 +55,32 @@ const createClientSchema = z.object({
   default_rate_dollars: rateDollarsField,
 });
 
-const editClientSchema = createClientSchema;
+const triState = z.enum(["inherit", "on", "off"]);
+
+const editClientSchema = createClientSchema.extend({
+  arAutomationEnabled: triState,
+  arApprovalRequired: triState,
+  arRemindersEnabled: triState,
+  arReminderCadenceDays: z
+    .string()
+    .refine(
+      (v) => v === "" || /^\d+$/.test(v.trim()),
+      "Enter a positive whole number or leave blank to inherit",
+    ),
+});
 
 type CreateClientFormValues = z.infer<typeof createClientSchema>;
 type EditClientFormValues = z.infer<typeof editClientSchema>;
+
+function boolToTri(v: boolean | null | undefined): "inherit" | "on" | "off" {
+  if (v == null) return "inherit";
+  return v ? "on" : "off";
+}
+
+function triToBool(v: "inherit" | "on" | "off"): boolean | null {
+  if (v === "inherit") return null;
+  return v === "on";
+}
 
 function rateInputFromCents(cents: number | null | undefined): string {
   if (cents == null) return "";
@@ -76,9 +99,11 @@ export function ClientsPage() {
   const createClient = useCreateClient();
   const updateClient = useUpdateClient();
   const deleteClient = useDeleteClient();
+  const arSettingsQ = useArSettings();
   const { toast } = useToast();
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Client | null>(null);
+  const showOverrides = arSettingsQ.data?.scope === "per_client";
 
   const form = useForm<CreateClientFormValues>({
     resolver: zodResolver(createClientSchema),
@@ -99,6 +124,10 @@ export function ClientsPage() {
       billing_address: "",
       notes: "",
       default_rate_dollars: "",
+      arAutomationEnabled: "inherit",
+      arApprovalRequired: "inherit",
+      arRemindersEnabled: "inherit",
+      arReminderCadenceDays: "",
     },
   });
 
@@ -130,6 +159,11 @@ export function ClientsPage() {
       billing_address: c.billing_address ?? "",
       notes: c.notes ?? "",
       default_rate_dollars: rateInputFromCents(c.default_rate_cents),
+      arAutomationEnabled: boolToTri(c.arAutomationEnabled),
+      arApprovalRequired: boolToTri(c.arApprovalRequired),
+      arRemindersEnabled: boolToTri(c.arRemindersEnabled),
+      arReminderCadenceDays:
+        c.arReminderCadenceDays == null ? "" : String(c.arReminderCadenceDays),
     });
     setEditing(c);
   };
@@ -143,6 +177,13 @@ export function ClientsPage() {
       notes: values.notes ? values.notes : null,
       default_rate_cents: rateInputToCents(values.default_rate_dollars),
     };
+    if (showOverrides) {
+      patch.arAutomationEnabled = triToBool(values.arAutomationEnabled);
+      patch.arApprovalRequired = triToBool(values.arApprovalRequired);
+      patch.arRemindersEnabled = triToBool(values.arRemindersEnabled);
+      const cadence = values.arReminderCadenceDays.trim();
+      patch.arReminderCadenceDays = cadence === "" ? null : Number(cadence);
+    }
     try {
       await updateClient.mutateAsync({ id: editing.id, patch });
       toast({ title: "Client updated", description: values.name });
@@ -308,6 +349,53 @@ export function ClientsPage() {
               <Label htmlFor="edit_notes">Notes</Label>
               <Textarea id="edit_notes" rows={2} {...editForm.register("notes")} />
             </div>
+            {showOverrides ? (
+              <div className="space-y-3 rounded-md border border-[var(--color-border)] p-3">
+                <div>
+                  <p className="text-sm font-medium">
+                    AR automation overrides
+                  </p>
+                  <p className="text-xs text-[var(--color-muted-foreground)]">
+                    Leave fields set to “Inherit” to use the org default.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <TriStateField
+                    id="edit_ar_enabled"
+                    label="Automation enabled"
+                    {...editForm.register("arAutomationEnabled")}
+                  />
+                  <TriStateField
+                    id="edit_ar_approval"
+                    label="Approval required"
+                    {...editForm.register("arApprovalRequired")}
+                  />
+                  <TriStateField
+                    id="edit_ar_reminders"
+                    label="Reminders enabled"
+                    {...editForm.register("arRemindersEnabled")}
+                  />
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit_ar_cadence">
+                      Reminder cadence (days)
+                    </Label>
+                    <Input
+                      id="edit_ar_cadence"
+                      type="number"
+                      min={1}
+                      step={1}
+                      placeholder="Inherit"
+                      {...editForm.register("arReminderCadenceDays")}
+                    />
+                    {editForm.formState.errors.arReminderCadenceDays ? (
+                      <p className="text-xs text-[var(--color-destructive)]">
+                        {editForm.formState.errors.arReminderCadenceDays.message}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : null}
             <DialogFooter>
               <Button
                 type="button"
@@ -385,3 +473,32 @@ export function ClientsPage() {
     </div>
   );
 }
+
+type TriStateFieldProps = React.SelectHTMLAttributes<HTMLSelectElement> & {
+  id: string;
+  label: string;
+};
+
+const TriStateField = React.forwardRef<HTMLSelectElement, TriStateFieldProps>(
+  ({ id, label, className, ...rest }, ref) => {
+    return (
+      <div className="space-y-1.5">
+        <Label htmlFor={id}>{label}</Label>
+        <select
+          id={id}
+          ref={ref}
+          {...rest}
+          className={
+            "flex h-9 w-full rounded-md border border-[var(--color-input)] bg-[var(--color-background)] px-3 py-1 text-sm " +
+            (className ?? "")
+          }
+        >
+          <option value="inherit">Inherit from org default</option>
+          <option value="on">On</option>
+          <option value="off">Off</option>
+        </select>
+      </div>
+    );
+  },
+);
+TriStateField.displayName = "TriStateField";

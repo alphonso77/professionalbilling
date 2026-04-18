@@ -27,6 +27,7 @@ import publicInvoicesRoutes from './routes/public-invoices';
 import adminRoutes from './routes/admin';
 import seedRoutes from './routes/seed';
 import feedbackRoutes from './routes/feedback';
+import arSettingsRoutes from './routes/ar-settings';
 import { generateOpenApiDocument } from './openapi/generate';
 
 const app = express();
@@ -115,6 +116,7 @@ app.use('/api/invoices', requireOrg(), invoicesRoutes);
 app.use('/api/admin', requireOrg(), adminRoutes);
 app.use('/api/seed', requireOrg(), seedRoutes);
 app.use('/api/feedback', requireOrg(), feedbackRoutes);
+app.use('/api/ar-settings', requireOrg(), arSettingsRoutes);
 
 // ---- Error handler (last) ----
 app.use(errorHandler);

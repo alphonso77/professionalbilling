@@ -17,6 +17,10 @@ const ClientSchema = z
     billing_address: z.string().nullable(),
     notes: z.string().nullable(),
     default_rate_cents: z.number().int().nullable(),
+    arAutomationEnabled: z.boolean().nullable(),
+    arApprovalRequired: z.boolean().nullable(),
+    arRemindersEnabled: z.boolean().nullable(),
+    arReminderCadenceDays: z.number().int().positive().nullable(),
     created_at: z.string(),
     updated_at: z.string(),
   })
@@ -39,6 +43,10 @@ const UpdateClientBody = z
     billing_address: z.string().nullable().optional(),
     notes: z.string().nullable().optional(),
     default_rate_cents: z.number().int().min(0).nullable().optional(),
+    arAutomationEnabled: z.boolean().nullable().optional(),
+    arApprovalRequired: z.boolean().nullable().optional(),
+    arRemindersEnabled: z.boolean().nullable().optional(),
+    arReminderCadenceDays: z.number().int().positive().nullable().optional(),
   })
   .openapi('UpdateClientBody');
 
@@ -139,25 +147,71 @@ const CLIENT_COLUMNS = [
   'billing_address',
   'notes',
   'default_rate_cents',
+  'ar_automation_enabled',
+  'ar_approval_required',
+  'ar_reminders_enabled',
+  'ar_reminder_cadence_days',
   'created_at',
   'updated_at',
 ];
 
+type ClientRow = {
+  id: string;
+  org_id: string;
+  name: string;
+  email: string | null;
+  billing_address: string | null;
+  notes: string | null;
+  default_rate_cents: number | null;
+  ar_automation_enabled: boolean | null;
+  ar_approval_required: boolean | null;
+  ar_reminders_enabled: boolean | null;
+  ar_reminder_cadence_days: number | null;
+  created_at: string | Date;
+  updated_at: string | Date;
+};
+
+function serializeClient(row: ClientRow) {
+  return {
+    id: row.id,
+    org_id: row.org_id,
+    name: row.name,
+    email: row.email,
+    billing_address: row.billing_address,
+    notes: row.notes,
+    default_rate_cents: row.default_rate_cents,
+    arAutomationEnabled: row.ar_automation_enabled,
+    arApprovalRequired: row.ar_approval_required,
+    arRemindersEnabled: row.ar_reminders_enabled,
+    arReminderCadenceDays:
+      row.ar_reminder_cadence_days == null
+        ? null
+        : Number(row.ar_reminder_cadence_days),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
 export async function handleList() {
-  const rows = await tdb('clients').select(CLIENT_COLUMNS).orderBy('created_at', 'desc');
-  return { data: rows };
+  const rows = (await tdb('clients')
+    .select(CLIENT_COLUMNS)
+    .orderBy('created_at', 'desc')) as ClientRow[];
+  return { data: rows.map(serializeClient) };
 }
 
 export async function handleGet(req: AuthenticatedRequest) {
   const id = z.string().uuid().parse(req.params.id);
-  const row = await tdb('clients').where({ id }).select(CLIENT_COLUMNS).first();
+  const row = (await tdb('clients')
+    .where({ id })
+    .select(CLIENT_COLUMNS)
+    .first()) as ClientRow | undefined;
   if (!row) throw new AppError(404, 'Client not found');
-  return { data: row };
+  return { data: serializeClient(row) };
 }
 
 export async function handleCreate(req: AuthenticatedRequest) {
   const body = CreateClientBody.parse(req.body);
-  const [row] = await tdb('clients')
+  const [row] = (await tdb('clients')
     .insert({
       org_id: req.org!.id,
       name: body.name,
@@ -166,8 +220,8 @@ export async function handleCreate(req: AuthenticatedRequest) {
       notes: body.notes ?? null,
       default_rate_cents: body.default_rate_cents ?? null,
     })
-    .returning(CLIENT_COLUMNS);
-  return { data: row };
+    .returning(CLIENT_COLUMNS)) as ClientRow[];
+  return { data: serializeClient(row) };
 }
 
 export async function handleUpdate(req: AuthenticatedRequest) {
@@ -183,14 +237,25 @@ export async function handleUpdate(req: AuthenticatedRequest) {
   ] as const) {
     if (k in body) patch[k] = body[k];
   }
+  if ('arAutomationEnabled' in body) patch.ar_automation_enabled = body.arAutomationEnabled;
+  if ('arApprovalRequired' in body) patch.ar_approval_required = body.arApprovalRequired;
+  if ('arRemindersEnabled' in body) patch.ar_reminders_enabled = body.arRemindersEnabled;
+  if ('arReminderCadenceDays' in body) patch.ar_reminder_cadence_days = body.arReminderCadenceDays;
+
   if (Object.keys(patch).length === 0) {
-    const row = await tdb('clients').where({ id }).select(CLIENT_COLUMNS).first();
+    const row = (await tdb('clients')
+      .where({ id })
+      .select(CLIENT_COLUMNS)
+      .first()) as ClientRow | undefined;
     if (!row) throw new AppError(404, 'Client not found');
-    return { data: row };
+    return { data: serializeClient(row) };
   }
-  const rows = await tdb('clients').where({ id }).update(patch).returning(CLIENT_COLUMNS);
+  const rows = (await tdb('clients')
+    .where({ id })
+    .update(patch)
+    .returning(CLIENT_COLUMNS)) as ClientRow[];
   if (!rows.length) throw new AppError(404, 'Client not found');
-  return { data: rows[0] };
+  return { data: serializeClient(rows[0]) };
 }
 
 export async function handleDelete(req: AuthenticatedRequest) {

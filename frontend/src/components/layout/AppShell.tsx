@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PiButton } from "@/components/PiButton";
 import { useMe } from "@/hooks/use-me";
+import { usePendingApprovalCount } from "@/hooks/use-invoices";
 
 type NavItem = {
   to: string;
@@ -45,6 +46,7 @@ const ADMIN_NAV: NavItem = {
 
 export function AppShell() {
   const { data: me } = useMe();
+  const { data: pendingCount } = usePendingApprovalCount();
   const navItems = me?.user?.is_admin ? [...NAV, ADMIN_NAV] : NAV;
   return (
     <div className="flex h-full min-h-screen bg-[var(--color-background)] text-[var(--color-foreground)]">
@@ -61,6 +63,8 @@ export function AppShell() {
         <nav className="flex-1 space-y-1 p-3">
           {navItems.map((item) => {
             const Icon = item.icon;
+            const showBadge =
+              item.to === "/invoices" && (pendingCount ?? 0) > 0;
             return (
               <NavLink
                 key={item.to}
@@ -77,7 +81,15 @@ export function AppShell() {
                 }
               >
                 <Icon className="h-4 w-4" />
-                {item.label}
+                <span className="flex-1">{item.label}</span>
+                {showBadge ? (
+                  <span
+                    aria-label={`${pendingCount} pending approval`}
+                    className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--color-primary)] px-1.5 text-xs font-semibold text-[var(--color-primary-foreground)]"
+                  >
+                    {pendingCount}
+                  </span>
+                ) : null}
               </NavLink>
             );
           })}

@@ -73,6 +73,10 @@ const InvoiceWithItemsSchema = InvoiceSchema.extend({
 const ListQuery = z.object({
   status: InvoiceStatusEnum.optional(),
   clientId: z.string().uuid().optional(),
+  pendingApproval: z
+    .union([z.literal('true'), z.literal('false'), z.boolean()])
+    .optional()
+    .transform((v) => v === true || v === 'true'),
 });
 
 const CreateBody = z
@@ -209,6 +213,39 @@ registry.registerPath({
   },
 });
 
+registry.registerPath({
+  method: 'post',
+  path: '/api/invoices/{id}/approve-send',
+  tags: ['invoices'],
+  summary: 'Approve an AR-generated draft: finalize + enqueue send',
+  security: [{ bearerAuth: [] }, { orgIdHeader: [] }],
+  request: { params: IdParam },
+  responses: {
+    200: { description: 'Finalized + queued', content: { 'application/json': { schema: OneWithItemsResponse } } },
+    400: { description: 'Not AR-generated or invalid status' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/invoices/{id}/reject-approval',
+  tags: ['invoices'],
+  summary: 'Reject an AR-generated draft: delete it and re-unbill its time entries',
+  security: [{ bearerAuth: [] }, { orgIdHeader: [] }],
+  request: { params: IdParam },
+  responses: {
+    200: {
+      description: 'Deleted',
+      content: {
+        'application/json': {
+          schema: z.object({ data: z.object({ deleted: z.literal(true) }) }),
+        },
+      },
+    },
+    400: { description: 'Not AR-generated or invalid status' },
+  },
+});
+
 /** Build the detail payload, stripping/augmenting credentials per status. */
 function buildDetailPayload(
   invoice: ReturnType<typeof serializeInvoice>,
@@ -333,6 +370,54 @@ export async function handleDelete(id: string, t = tdb) {
   return { data: await deleteDraft(id, t) };
 }
 
+export async function handleApproveSend(
+  id: string,
+  orgId: string,
+  t = tdb,
+  enqueue: EnqueueSend = defaultEnqueueSend
+) {
+  const invoice = (await t('invoices').where({ id }).first()) as
+    | { id: string; status: string; auto_generated_at: string | Date | null }
+    | undefined;
+  if (!invoice) throw new AppError(404, 'Invoice not found');
+  if (invoice.auto_generated_at == null) {
+    throw new AppError(400, 'Invoice was not AR-generated', 'NOT_AR_GENERATED');
+  }
+  if (invoice.status !== 'draft') {
+    throw new AppError(400, 'Only draft invoices can be approved', 'INVALID_STATUS');
+  }
+
+  const finalized = await finalizeInvoice(id, orgId, t);
+  // finalizeInvoice already flipped status to 'open' and set number + payment_token.
+  // Delegate demo-skip + enqueue through the same code path as handleSend.
+  await handleSend(id, t, enqueue);
+  return {
+    data: buildDetailPayload(
+      serializeInvoice(finalized.invoice),
+      finalized.items.map(serializeLineItem),
+      finalized.client,
+      null,
+      finalized.invoice.payment_token
+    ),
+  };
+}
+
+export async function handleRejectApproval(id: string, t = tdb) {
+  const invoice = (await t('invoices').where({ id }).first()) as
+    | { id: string; status: string; auto_generated_at: string | Date | null }
+    | undefined;
+  if (!invoice) throw new AppError(404, 'Invoice not found');
+  if (invoice.auto_generated_at == null) {
+    throw new AppError(400, 'Invoice was not AR-generated', 'NOT_AR_GENERATED');
+  }
+  if (invoice.status !== 'draft') {
+    throw new AppError(400, 'Only draft invoices can be rejected', 'INVALID_STATUS');
+  }
+  // Line items cascade via FK; their time_entry_id refs disappear, re-unbilling them.
+  await t('invoices').where({ id }).del();
+  return { data: { deleted: true } };
+}
+
 const EXAMPLE_DOMAIN_RE = /@(?:[^@]+\.)?example(?:\.com|\.org|\.net)?$/i;
 
 type EnqueueSend = (invoiceId: string) => Promise<unknown>;
@@ -443,6 +528,22 @@ router.delete(
   tenantScope(async (req, res) => {
     const { id } = IdParam.parse(req.params);
     res.json(await handleDelete(id));
+  })
+);
+
+router.post(
+  '/:id/approve-send',
+  tenantScope(async (req, res) => {
+    const { id } = IdParam.parse(req.params);
+    res.json(await handleApproveSend(id, req.org!.id));
+  })
+);
+
+router.post(
+  '/:id/reject-approval',
+  tenantScope(async (req, res) => {
+    const { id } = IdParam.parse(req.params);
+    res.json(await handleRejectApproval(id));
   })
 );
 

@@ -21,8 +21,6 @@
 * Clerk `user.deleted` webhook handler added with audit-log idempotency
 * `removeSeeded` rewritten: cascade-deletes ALL descendants of seeded clients regardless of their own `seeded_at` — kills the "two Acme clients" reseed bug; `adopted` field dropped from return shape
 
-## In Progress
-
 ### Phase 2D — Onboarding tutorial
 
 * new-user tutorial with skip + replay buttons
@@ -41,6 +39,24 @@
 * there's a brief flash (quite noticible though) where the tutorial modal is first in the middle of the viewport, then it jumps to the area it's supposed to highlight
 * it should finish after the last step (rather than starting over)
 
+## In Progress
+
+### Phase 2C - Automate Accounts Receivable
+
+* customer can turn on 'automated invoicing'
+* customer should specify, 'global' or 'per-client' (they could say 'global' with specific client overrides)
+* customer can specify whether invoice reminders are sent
+* customer specifies a day of the month
+* customer specifies whether it's fully automated, or gated by their approval
+* each day of the month, the system reads:
+    - un-attatched time logs
+    - un-paid invoices
+* then: the system will:
+    - create invoices for all un-attached time logs
+    - either: send invoices automatically, or prompt the user to approve/deny send (if configured to be gated)
+    - query for all un-paid invoices, and send reminders to configured channels (if configured to send automated invoice reminders)
+
+
 ## Pending
 
 ### Phase 2B — Complete DB reset (admin feature)
@@ -50,12 +66,6 @@
     - or alternative: leave Clerk alone, update the app so that Clerk is the source of truth — a non-provisioned user authenticated by Clerk gets auto-provisioned on login (thoughts?)
     - optionally remove `founder@fratellisoftware.com` (in which case user gets booted and must create a new one)
     - with founder staying (mode) just leave what's necessary to log in, remove invoices, time, clients, etc.
-
-### Phase 2C — Auto-send invoices
-
-* specify which date invoices go out
-* invoices automatically created from un-invoiced time logs
-* config at user level, with client-specific overrides
 
 ## Phase 3
 

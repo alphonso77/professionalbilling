@@ -118,9 +118,14 @@ function computeLineAmountCents(quantityHours: number, rateCents: number): numbe
 export async function listInvoices(filters: {
   status?: InvoiceStatus;
   clientId?: string;
+  pendingApproval?: boolean;
 }, t: Tdb = tdb) {
   const qb = t('invoices').select('*').orderBy('created_at', 'desc');
-  if (filters.status) qb.where({ status: filters.status });
+  if (filters.pendingApproval) {
+    qb.where({ status: 'draft' }).whereNotNull('auto_generated_at');
+  } else {
+    if (filters.status) qb.where({ status: filters.status });
+  }
   if (filters.clientId) qb.where({ client_id: filters.clientId });
   const rows = (await qb) as InvoiceRow[];
   return rows.map(serializeInvoiceForList);
