@@ -21,26 +21,6 @@
 * Clerk `user.deleted` webhook handler added with audit-log idempotency
 * `removeSeeded` rewritten: cascade-deletes ALL descendants of seeded clients regardless of their own `seeded_at` — kills the "two Acme clients" reseed bug; `adopted` field dropped from return shape
 
-### Phase 2D — Onboarding tutorial
-
-* new-user tutorial with skip + replay buttons
-* use IntegraSentry implementation as the model
-
-### Phase 2E — Feedback form, UI Enhancements
-
-* add a nice favicon (maybe generate from a relevant emoji matching the billing theme)
-* generic form capturing: bug reports, feature requests, UI feedback
-* prominent 'feedback' link in the main menu
-* feedback goes to our DB, surfaced in the admin area
-* optional: user-side area showing their submitted feedback + status (pending, acknowledged, clarification requested)
-
-### Phase 2D Feedback
-
-* there's a brief flash (quite noticible though) where the tutorial modal is first in the middle of the viewport, then it jumps to the area it's supposed to highlight
-* it should finish after the last step (rather than starting over)
-
-## In Progress
-
 ### Phase 2C - Automate Accounts Receivable
 
 * customer can turn on 'automated invoicing'
@@ -58,11 +38,40 @@
 
 ### Phase 2C - UAT Feedback
 
-* clicking 'pay now' on an invoice just results in the button saying 'processing' and then hanging
-* clicking various invoices (Acme org is one) results in a 'stripe not connected for this org' message
-    - is this an artifact of me pushing and running the code prior to polish itmes, using the `founder@` account?
+* clicking 'pay now' on an invoice just results in the button saying 'processing' and then hanging — downstream of the cross-org issue below; resolved with the RLS fix + correct org context
+* clicking various invoices (Acme org is one) results in a 'stripe not connected for this org' message — root cause: prod `DATABASE_APP_URL` was using the Postgres root password (32 chars) instead of `${{PROFESSIONALBILLING_APP_PASSWORD}}` (64 chars), so the api was effectively running as superuser and bypassing RLS. The "Acme invoice" the user clicked actually belonged to Tim's Law Firm; cross-org isolation was leaking. Fixed by re-syncing the URL to `postgresql://professionalbilling_app:${{PROFESSIONALBILLING_APP_PASSWORD}}@postgres.railway.internal:5432/railway` and ALTER ROLE-ing the role password to match. Verified: as John's-org, Tim's invoice now returns 404 (was 503).
 
+### Phase 2D — Onboarding tutorial
 
+* new-user tutorial with skip + replay buttons
+* use IntegraSentry implementation as the model
+
+### Phase 2D Feedback
+
+* there's a brief flash (quite noticible though) where the tutorial modal is first in the middle of the viewport, then it jumps to the area it's supposed to highlight
+* it should finish after the last step (rather than starting over)
+
+### Phase 2E — Feedback form, UI Enhancements
+
+* add a nice favicon (maybe generate from a relevant emoji matching the billing theme)
+* generic form capturing: bug reports, feature requests, UI feedback
+* prominent 'feedback' link in the main menu
+* feedback goes to our DB, surfaced in the admin area
+* optional: user-side area showing their submitted feedback + status (pending, acknowledged, clarification requested)
+
+## In Progress
+
+### Phase 2D - (operational hardening)
+
+* audit the code, RLS should be defense in depth, why didn't the app code take up the slack when the mis-configured env vars caused the RLS failure
+* **remove `RESEND_API_KEY` in Railway api service** 
+* **Make the app-role password drift impossible.** The `create_app_role` migration only runs once (Knex tracks it in `knex_migrations`), so rotating `PROFESSIONALBILLING_APP_PASSWORD` after first deploy silently leaves the role's password out of sync. Options:
+    - Add a startup hook in `src/server.ts` that runs `ALTER ROLE professionalbilling_app WITH PASSWORD <env value>` on every boot (idempotent, cheap).
+    - Or: a separate "always-runs" migration-like script invoked from `docker-entrypoint.sh` after `migrate latest`.
+* **Add a fail-loud startup assertion that `DATABASE_APP_URL` is NOT a superuser.** This session's RLS leak went undetected for weeks because the only symptom was "things work too well" (cross-org reads succeeding). On boot, `SELECT current_setting('is_superuser')` against the dbApp pool — if `'on'`, log a fatal and exit. Cheap insurance against the same misconfig recurring.
+* **Tighten the role password format.** `PROFESSIONALBILLING_APP_PASSWORD` is 64 chars (likely hex), so URL-encoding wasn't an issue this time, but the migration's `ALTER ROLE … PASSWORD %L` path won't survive a password with `'` or `\` characters. Document the constraint or generate the password with a known-safe alphabet.
+* **Stripe Connect for Tim's Law Firm.** Demo org has no `platforms` row; either connect Stripe there (test mode) or document that AR/payment demos must be done in John's Organization.
+* **Audit log retention for `oauth.deauthorize` events.** Saw 4 deauthorize events in the last 24h with no surrounding context for *why*; consider richer payload capture (which user initiated, from where) so future investigations don't have to guess.
 
 ## Pending
 
