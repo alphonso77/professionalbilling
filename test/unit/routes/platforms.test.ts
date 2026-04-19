@@ -152,7 +152,7 @@ describe('routes/platforms — handleList', () => {
       updated_at: '2026-04-17T00:00:00Z',
     });
 
-    const result = await handleList(deps);
+    const result = await handleList({ orgId: 'org_1' }, deps);
 
     expect(result.data).to.have.length(1);
     const [row] = result.data;
@@ -164,7 +164,7 @@ describe('routes/platforms — handleList', () => {
 
   it('returns an empty array when the org has no platforms', async () => {
     const deps = makeDeps();
-    const result = await handleList(deps);
+    const result = await handleList({ orgId: 'org_1' }, deps);
     expect(result.data).to.deep.equal([]);
   });
 });

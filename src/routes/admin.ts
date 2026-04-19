@@ -147,8 +147,9 @@ registry.registerPath({
   },
 });
 
-export async function handleList() {
+export async function handleList(req: AuthenticatedRequest) {
   const rows = await tdb('users')
+    .where({ org_id: req.org!.id })
     .select(ADMIN_USER_COLUMNS)
     .orderBy('created_at', 'desc');
   return { data: rows };
@@ -197,9 +198,10 @@ export async function handleUpdate(req: AuthenticatedRequest) {
   return { data: rows[0] };
 }
 
-export async function handleFeedbackList() {
+export async function handleFeedbackList(req: AuthenticatedRequest) {
   const rows = await tdb('feedback')
     .leftJoin('users', 'users.id', 'feedback.user_id')
+    .where('feedback.org_id', req.org!.id)
     .select(ADMIN_FEEDBACK_SELECT)
     .orderBy('feedback.created_at', 'desc');
   return { data: rows };
@@ -237,8 +239,8 @@ export async function handleFeedbackUpdate(req: AuthenticatedRequest) {
 
 router.get(
   '/users',
-  requireAdmin(async (_req, res) => {
-    res.json(await handleList());
+  requireAdmin(async (req, res) => {
+    res.json(await handleList(req));
   })
 );
 
@@ -251,8 +253,8 @@ router.patch(
 
 router.get(
   '/feedback',
-  requireAdmin(async (_req, res) => {
-    res.json(await handleFeedbackList());
+  requireAdmin(async (req, res) => {
+    res.json(await handleFeedbackList(req));
   })
 );
 

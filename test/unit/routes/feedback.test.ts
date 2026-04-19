@@ -328,7 +328,7 @@ describe('routes/admin — handleFeedbackList joins submitter_email', () => {
       users: [{ id: USER, email: 'a@x.com' }],
     });
 
-    const result = (await runAs(trx, () => handleFeedbackList())) as { data: Row[] };
+    const result = (await runAs(trx, () => handleFeedbackList(fakeReq({})))) as { data: Row[] };
     expect(result.data).to.have.length(1);
     expect(result.data[0].submitter_email).to.equal('a@x.com');
   });

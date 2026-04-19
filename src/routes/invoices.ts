@@ -283,9 +283,10 @@ function buildDetailPayload(
 
 export async function handleList(
   query: z.infer<typeof ListQuery>,
+  orgId: string,
   t = tdb
 ) {
-  return { data: await listInvoices(query, t) };
+  return { data: await listInvoices(query, orgId, t) };
 }
 
 export async function handleGet(id: string, orgId: string, t = tdb) {
@@ -469,7 +470,7 @@ router.get(
   '/',
   tenantScope(async (req, res) => {
     const q = ListQuery.parse(req.query);
-    res.json(await handleList(q));
+    res.json(await handleList(q, req.org!.id));
   })
 );
 

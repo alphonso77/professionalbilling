@@ -115,12 +115,19 @@ function computeLineAmountCents(quantityHours: number, rateCents: number): numbe
   return Math.round(quantityHours * rateCents);
 }
 
-export async function listInvoices(filters: {
-  status?: InvoiceStatus;
-  clientId?: string;
-  pendingApproval?: boolean;
-}, t: Tdb = tdb) {
-  const qb = t('invoices').select('*').orderBy('created_at', 'desc');
+export async function listInvoices(
+  filters: {
+    status?: InvoiceStatus;
+    clientId?: string;
+    pendingApproval?: boolean;
+  },
+  orgId: string = currentOrgId(),
+  t: Tdb = tdb
+) {
+  const qb = t('invoices')
+    .where({ org_id: orgId })
+    .select('*')
+    .orderBy('created_at', 'desc');
   if (filters.pendingApproval) {
     qb.where({ status: 'draft' }).whereNotNull('auto_generated_at');
   } else {
@@ -191,7 +198,9 @@ export async function createDraft(
 
   const billed = (await t('invoice_line_items')
     .whereIn('invoice_line_items.time_entry_id', input.timeEntryIds)
+    .where('invoice_line_items.org_id', orgId)
     .join('invoices', 'invoices.id', 'invoice_line_items.invoice_id')
+    .where('invoices.org_id', orgId)
     .whereNot('invoices.status', 'void')
     .select('invoice_line_items.time_entry_id as time_entry_id')) as Array<{
     time_entry_id: string;

@@ -64,9 +64,16 @@ function makeMockDb(): MockDb {
       where(cond: Row | string, op?: unknown, val?: unknown) {
         if (typeof cond === 'string') {
           const column = cond;
+          const bare = column.split('.').pop() as string;
+          const isForeign =
+            column.includes('.') && !column.startsWith(`${tableName}.`);
           const expectedVal = op !== undefined && val === undefined ? op : val;
           conditions.push((r) => {
-            const rowVal = joinSpec ? (r as any).__joined?.[column] ?? r[column] : r[column];
+            const rowVal = isForeign
+              ? (r as any).__joined?.[bare]
+              : joinSpec
+                ? (r as any).__joined?.[bare] ?? r[bare]
+                : r[bare];
             return rowVal === expectedVal;
           });
         } else {
@@ -608,7 +615,7 @@ describe('services/invoices — updateDraft + listInvoices', () => {
     db._seed('invoices', { id: 'b', org_id: 'org_1', client_id: 'c1', status: 'open' });
     db._seed('invoices', { id: 'c', org_id: 'org_1', client_id: 'c2', status: 'open' });
 
-    const openC1 = await listInvoices({ status: 'open', clientId: 'c1' }, db as any);
+    const openC1 = await listInvoices({ status: 'open', clientId: 'c1' }, 'org_1', db as any);
     expect(openC1).to.have.length(1);
     expect(openC1[0].id).to.equal('b');
   });
@@ -835,7 +842,7 @@ describe('routes/invoices — paymentUrl surfacing on detail', () => {
       total_cents: 10_000,
       subtotal_cents: 10_000,
     });
-    const res = await handleList({}, db as any);
+    const res = await handleList({}, 'org_1', db as any);
     for (const row of res.data) {
       expect((row as any).paymentUrl).to.equal(undefined);
     }

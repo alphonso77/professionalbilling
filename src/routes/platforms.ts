@@ -65,9 +65,13 @@ registry.registerPath({
   },
 });
 
-export async function handleList(deps: PlatformsDeps = defaultDeps) {
+export async function handleList(
+  params: { orgId: string },
+  deps: PlatformsDeps = defaultDeps
+) {
   const rows = await deps
     .tdb('platforms')
+    .where({ org_id: params.orgId })
     .select('id', 'type', 'external_account_id', 'created_at', 'updated_at')
     .orderBy('created_at', 'desc');
   return { data: rows };
@@ -194,8 +198,8 @@ const router = Router();
 
 router.get(
   '/',
-  tenantScope(async (_req, res) => {
-    res.json(await handleList());
+  tenantScope(async (req, res) => {
+    res.json(await handleList({ orgId: req.org!.id }));
   })
 );
 

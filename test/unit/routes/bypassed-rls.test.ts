@@ -1,7 +1,10 @@
 import { expect } from 'chai';
 import type { Knex } from 'knex';
 
-import { handleGet as handleClientGet } from '../../../src/routes/clients';
+import {
+  handleGet as handleClientGet,
+  handleList as handleClientList,
+} from '../../../src/routes/clients';
 import { handleMe } from '../../../src/routes/me';
 import { handleGet as handleInvoiceGet } from '../../../src/routes/invoices';
 import { AppError } from '../../../src/middleware/error-handler';
@@ -161,6 +164,55 @@ describe('routes/me — bypassed-RLS regression (H4)', () => {
 
     expect(result.data.user).to.equal(null);
     expect(result.data.org).to.deep.include({ id: ORG_A });
+  });
+});
+
+describe('routes/clients — list bypassed-RLS regression (H4)', () => {
+  it('returns only the caller\'s org rows when RLS is bypassed', async () => {
+    const ID_A = '00000000-0000-0000-0000-000000000aa1';
+    const trx = makeMockDb({
+      clients: [
+        {
+          id: ID_A,
+          org_id: ORG_A,
+          name: 'A Client',
+          email: null,
+          billing_address: null,
+          notes: null,
+          default_rate_cents: null,
+          ar_automation_enabled: null,
+          ar_approval_required: null,
+          ar_reminders_enabled: null,
+          ar_reminder_cadence_days: null,
+          seeded_at: null,
+          created_at: '2026-04-18T00:00:00Z',
+          updated_at: '2026-04-18T00:00:00Z',
+        },
+        {
+          id: ID_B,
+          org_id: ORG_B,
+          name: 'B Client',
+          email: null,
+          billing_address: null,
+          notes: null,
+          default_rate_cents: null,
+          ar_automation_enabled: null,
+          ar_approval_required: null,
+          ar_reminders_enabled: null,
+          ar_reminder_cadence_days: null,
+          seeded_at: null,
+          created_at: '2026-04-18T00:00:00Z',
+          updated_at: '2026-04-18T00:00:00Z',
+        },
+      ],
+    });
+
+    const result = (await runWithTenantContext({ orgId: ORG_A, trx }, () =>
+      handleClientList(fakeReq({ userId: 'user_a', orgId: ORG_A }))
+    )) as { data: Array<{ id: string; org_id?: string }> };
+
+    expect(result.data).to.have.length(1);
+    expect(result.data[0].id).to.equal(ID_A);
   });
 });
 

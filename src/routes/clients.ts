@@ -192,8 +192,9 @@ function serializeClient(row: ClientRow) {
   };
 }
 
-export async function handleList() {
+export async function handleList(req: AuthenticatedRequest) {
   const rows = (await tdb('clients')
+    .where({ org_id: req.org!.id })
     .select(CLIENT_COLUMNS)
     .orderBy('created_at', 'desc')) as ClientRow[];
   return { data: rows.map(serializeClient) };
@@ -369,8 +370,8 @@ export async function handleDelete(req: AuthenticatedRequest) {
 
 router.get(
   '/',
-  tenantScope(async (_req, res) => {
-    res.json(await handleList());
+  tenantScope(async (req, res) => {
+    res.json(await handleList(req));
   })
 );
 
