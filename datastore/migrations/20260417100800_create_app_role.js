@@ -11,10 +11,10 @@
  *
  * PASSWORD ALPHABET CONSTRAINT: PROFESSIONALBILLING_APP_PASSWORD must be URL-safe
  * (no `@`, `:`, `/`, `?`, `#`, `%`, no whitespace) because it's interpolated into
- * DATABASE_APP_URL. Must also be safe for single-quote wrapping via `%L` in the
- * ALTER ROLE path above. Hex (64 chars from `openssl rand -hex 32`) is the
+ * DATABASE_APP_URL. Any single quotes are JS-side doubled before inlining into the
+ * ALTER ROLE DDL below. Hex (64 chars from `openssl rand -hex 32`) is the
  * canonical choice and is what prod uses. Special characters parse silently
- * wrong in either path → cross-org data leak.
+ * wrong in the URL path → cross-org data leak.
  */
 exports.up = async function (knex) {
   const pw = process.env.PROFESSIONALBILLING_APP_PASSWORD;
@@ -27,13 +27,9 @@ exports.up = async function (knex) {
   `);
 
   if (pw) {
+    const escaped = pw.replace(/'/g, "''");
     await knex.raw(
-      `DO $do$
-       BEGIN
-         EXECUTE format('ALTER ROLE professionalbilling_app WITH LOGIN PASSWORD %L', ?);
-       END
-       $do$`,
-      [pw]
+      `ALTER ROLE professionalbilling_app WITH LOGIN PASSWORD '${escaped}'`
     );
   }
 

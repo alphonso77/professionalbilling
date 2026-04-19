@@ -59,7 +59,7 @@ describe('services/startup-checks — syncAppRolePassword', () => {
     expect(calls).to.have.length(0);
   });
 
-  it('issues ALTER ROLE via format(%L) with the env value as a binding', async () => {
+  it('issues ALTER ROLE as plain DDL with the password inlined (post-H6)', async () => {
     const { fake, calls } = makeFakeKnex(() => ({ rows: [] }));
     let probed = false;
     const result = await withEnv(
@@ -76,10 +76,33 @@ describe('services/startup-checks — syncAppRolePassword', () => {
     );
     expect(result).to.deep.equal({ ran: true });
     expect(calls).to.have.length(1);
-    expect(calls[0].sql).to.match(/ALTER ROLE professionalbilling_app/);
-    expect(calls[0].sql).to.match(/%L/);
-    expect(calls[0].bindings).to.deep.equal(['deadbeef1234']);
+    expect(calls[0].sql).to.equal(
+      "ALTER ROLE professionalbilling_app WITH LOGIN PASSWORD 'deadbeef1234'"
+    );
+    expect(calls[0].sql).to.not.match(/DO \$do\$/);
+    expect(calls[0].sql).to.not.match(/%L/);
+    expect(calls[0].bindings).to.satisfy(
+      (b: unknown) => b === undefined || (Array.isArray(b) && b.length === 0)
+    );
     expect(probed).to.equal(true);
+  });
+
+  it('escapes single quotes in the password before inlining', async () => {
+    const { fake, calls } = makeFakeKnex(() => ({ rows: [] }));
+    await withEnv(
+      {
+        PROFESSIONALBILLING_APP_PASSWORD: "has'quote",
+        DATABASE_APP_URL: 'postgres://app:pw@localhost/db',
+      },
+      () =>
+        syncAppRolePassword(fake, {
+          probeDbApp: async () => {},
+        })
+    );
+    expect(calls).to.have.length(1);
+    expect(calls[0].sql).to.equal(
+      "ALTER ROLE professionalbilling_app WITH LOGIN PASSWORD 'has''quote'"
+    );
   });
 
   it('throws a diagnostic error when the probe login fails after ALTER ROLE', async () => {

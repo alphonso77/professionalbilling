@@ -45,14 +45,7 @@ export async function syncAppRolePassword(
     return { ran: false, reason: 'db_app_url_not_set' };
   }
 
-  await superuserDb.raw(
-    `DO $do$
-     BEGIN
-       EXECUTE format('ALTER ROLE professionalbilling_app WITH LOGIN PASSWORD %L', ?);
-     END
-     $do$`,
-    [pw]
-  );
+  await applyAlterRolePassword(superuserDb, 'professionalbilling_app', pw);
 
   const probe = deps.probeDbApp ?? defaultProbeDbApp;
   try {
@@ -69,6 +62,36 @@ export async function syncAppRolePassword(
     'startup-check: syncAppRolePassword ran; dbApp login verified against restricted role'
   );
   return { ran: true };
+}
+
+const ROLE_NAME_PATTERN = /^[a-z_][a-z0-9_]*$/i;
+
+/**
+ * Run `ALTER ROLE <roleName> WITH LOGIN PASSWORD '<password>'` against the
+ * superuser connection. Plain DDL, no bound parameters — Postgres `DO` blocks
+ * compile as prepared statements with zero param slots through knex's
+ * extended query protocol, so the DO-block-with-bind form fails before the
+ * ALTER ever runs (the prod incident on 2026-04-19). See CLAUDE.md.
+ *
+ * `roleName` is a trusted internal constant but still validated to keep
+ * identifier injection impossible. Password single-quotes are doubled to
+ * survive the inline literal — H5's alphabet constraint already excludes
+ * quotes in practice; this is belt-and-suspenders.
+ *
+ * Exported for the integration test in `test/integration/startup-checks.int.test.ts`.
+ */
+export async function applyAlterRolePassword(
+  superuserDb: Knex,
+  roleName: string,
+  password: string
+): Promise<void> {
+  if (!ROLE_NAME_PATTERN.test(roleName)) {
+    throw new Error(`applyAlterRolePassword: invalid role name '${roleName}'`);
+  }
+  const escaped = password.replace(/'/g, "''");
+  await superuserDb.raw(
+    `ALTER ROLE ${roleName} WITH LOGIN PASSWORD '${escaped}'`
+  );
 }
 
 async function defaultProbeDbApp(): Promise<void> {
