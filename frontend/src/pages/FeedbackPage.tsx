@@ -151,8 +151,8 @@ export function FeedbackPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Feedback</h1>
         <p className="text-sm text-[var(--color-muted-foreground)]">
-          Report bugs, suggest features, or tell us what's working. Your org's
-          admins will triage and respond here.
+          Report bugs, suggest features, or tell us what's working. The
+          Fratelli team reviews every submission and replies here.
         </p>
       </div>
 

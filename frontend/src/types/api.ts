@@ -5,6 +5,7 @@ export type MeUser = {
   role: "owner" | "admin" | "member";
   default_rate_cents: number | null;
   is_admin: boolean;
+  is_super_admin: boolean;
   easter_egg_enabled: boolean;
 };
 
@@ -14,6 +15,17 @@ export type AdminUserRow = {
   role: "owner" | "admin" | "member";
   is_admin: boolean;
   easter_egg_enabled: boolean;
+  created_at: string;
+};
+
+export type AllUsersRow = {
+  id: string;
+  email: string | null;
+  role: "owner" | "admin" | "member";
+  is_admin: boolean;
+  is_super_admin: boolean;
+  org_id: string | null;
+  org_name: string | null;
   created_at: string;
 };
 
@@ -221,8 +233,8 @@ export type FeedbackStatus =
 
 export type FeedbackRow = {
   id: string;
-  org_id: string;
-  user_id: string;
+  org_id: string | null;
+  user_id: string | null;
   type: FeedbackType;
   subject: string;
   body: string;
@@ -231,6 +243,7 @@ export type FeedbackRow = {
   created_at: string;
   updated_at: string;
   submitter_email?: string | null;
+  org_name?: string | null;
 };
 
 export type CreateFeedbackInput = {

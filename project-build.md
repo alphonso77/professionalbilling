@@ -62,3 +62,54 @@ We are building a professional billing app that is target at:
 * ensure multi-tenant isolation
 * implement the same RLS pattern used in `integrasentry` for defense in depth
 * app code should also enforce multi tenant isolation
+
+---- original notes below --- some duplication ----
+
+# Billing Tool App
+
+* this will be a billing tool app
+* made specifically for consultants who bill a lot of hours: lawyers, accountants, software developers
+* use the same architecture, tech stack, code conventions, and infrastructure (railway) as the IntegraSentry app
+* for scaffolding this app, use IntegraSentry as a template
+* IntegraSentry's repo is `alphonso77/integrasentry` on github
+* you can use github cli to read the `claude.md` and relevant files to understand its architecture, conventions, tech stack, and infrastructure design
+* this app is a minimalistic app
+* all it does is provide a way for billing to automatically happen
+* there will be initial set up of the user's account
+* then  the user needs to configure their client's information
+* this would incluide the minimum information needed to bill the client
+* the user chooses the billing cycle period
+* whenever the user does work on behalf of their client, they log hours into the system
+* the system automatically sends the user's client an invoice by email
+* the system uses stripe for billing
+* when the user initially signs up, they need to connect their stripe account, so there will be a minimalistic UI for that
+* we probably don't need to connect our stripe account, if we can get away with it this should just be a single user->stripe relationshipo
+* the system needs to have multi-tenant isolation
+* the isolation needs to be enforced both at the application layer (routes, and queries)
+* the isolation also needs to be enforced at the datbase, if possible (I believe postgres offers a built in multi-tenant isolation feature that requires every query to supply an org id)
+* the billing tool will be a product offering of Fratelli Software
+* www.fratellisoftware.com is where the tool will be marketd
+* billingtool.fratellisfotware.com will be the app's UI
+* api.fratellisoftware.com will be where the api endpoints live
+* the app will be hosted on railway
+* clerk can be used for new user identity
+
+# New User Onboarding
+
+1) discover the billing tool app on www.fratellisoftware.com
+2) sign up with an email address
+
+
+# Scope
+
+## Marketing Site 
+* stub out a basic marketing site for www.fratellisoftware.com (nothing lives there yet, but we have multiple projects going on in our spare time)
+* the main site will just have some basic copy that explains we are a progressive thinking software shop who loves building elegant solutions that solve problems for sole proprieters, and small to medium sized businesses
+* you can get information about my professional profile at www.linkedin.com/in/johnyarlott
+* my main job is a software engineer at Robbins Research International, but I also build a lot of software on my own and in my spare time because I love the craft
+* the web site copy can mention that I work there, but it shouldn't be prominent or the main focus
+* the main focus is 
+
+## MVP App
+* build the app to an MVP state, having the basic functionality needed
+* build the UI of the app, and the api endpoints needed

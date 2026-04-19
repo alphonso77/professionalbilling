@@ -16,6 +16,7 @@ const UserSchema = z
     role: z.enum(['owner', 'admin', 'member']),
     default_rate_cents: z.number().int().nullable(),
     is_admin: z.boolean(),
+    is_super_admin: z.boolean(),
     easter_egg_enabled: z.boolean(),
   })
   .openapi('MeUser');
@@ -44,6 +45,7 @@ const USER_COLUMNS = [
   'role',
   'default_rate_cents',
   'is_admin',
+  'is_super_admin',
   'easter_egg_enabled',
 ];
 

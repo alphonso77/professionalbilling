@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { registry } from '../openapi/registry';
-import { tdb } from '../config/tenant-context';
+import { db } from '../config/database';
 import { AppError } from '../middleware/error-handler';
 import { tenantScope } from '../middleware/tenant-scope';
 import type { AuthenticatedRequest } from '../middleware/auth';
@@ -19,8 +19,10 @@ const FeedbackStatusEnum = z.enum([
 const FeedbackSchema = z
   .object({
     id: z.string().uuid(),
-    org_id: z.string().uuid(),
-    user_id: z.string().uuid(),
+    org_id: z.string().uuid().nullable(),
+    user_id: z.string().uuid().nullable(),
+    submitter_email: z.string().email().nullable(),
+    org_name: z.string().nullable(),
     type: FeedbackTypeEnum,
     subject: z.string(),
     body: z.string(),
@@ -46,6 +48,8 @@ const FEEDBACK_COLUMNS = [
   'id',
   'org_id',
   'user_id',
+  'submitter_email',
+  'org_name',
   'type',
   'subject',
   'body',
@@ -83,8 +87,8 @@ registry.registerPath({
 
 export async function handleList(req: AuthenticatedRequest) {
   if (!req.userId) throw new AppError(401, 'Authentication required');
-  const rows = await tdb('feedback')
-    .where({ user_id: req.userId, org_id: req.org!.id })
+  const rows = await db('corporate.feedback')
+    .where({ user_id: req.userId })
     .select(FEEDBACK_COLUMNS)
     .orderBy('created_at', 'desc');
   return { data: rows };
@@ -93,10 +97,23 @@ export async function handleList(req: AuthenticatedRequest) {
 export async function handleCreate(req: AuthenticatedRequest) {
   if (!req.userId) throw new AppError(401, 'Authentication required');
   const body = CreateFeedbackBody.parse(req.body);
-  const [row] = await tdb('feedback')
+  const orgId = req.org!.id;
+
+  const userRow = (await db('users')
+    .where({ id: req.userId })
+    .select('email')
+    .first()) as { email: string | null } | undefined;
+  const orgRow = (await db('organizations')
+    .where({ id: orgId })
+    .select('name')
+    .first()) as { name: string } | undefined;
+
+  const [row] = await db('corporate.feedback')
     .insert({
-      org_id: req.org!.id,
+      org_id: orgId,
       user_id: req.userId,
+      submitter_email: userRow?.email ?? null,
+      org_name: orgRow?.name ?? null,
       type: body.type,
       subject: body.subject,
       body: body.body,

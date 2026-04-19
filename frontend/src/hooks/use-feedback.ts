@@ -31,11 +31,11 @@ export function useCreateFeedback() {
   });
 }
 
-export function useAdminFeedback() {
+export function useAdminFeedback(enabled = true) {
   const { call, orgId } = useApi();
   return useQuery({
     queryKey: [...ADMIN_FEEDBACK_KEY, orgId],
-    enabled: !!orgId,
+    enabled: enabled && !!orgId,
     queryFn: () => call<FeedbackRow[]>("GET", "/api/admin/feedback"),
   });
 }

@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { registry } from '../openapi/registry';
+import { db } from '../config/database';
 import { tdb } from '../config/tenant-context';
 import { AppError } from '../middleware/error-handler';
 import { requireAdmin } from '../middleware/require-admin';
+import { requireSuperAdmin } from '../middleware/require-super-admin';
 import type { AuthenticatedRequest } from '../middleware/auth';
 
 const router = Router();
@@ -29,8 +31,8 @@ const UpdateAdminUserBody = z
 const AdminFeedbackSchema = z
   .object({
     id: z.string().uuid(),
-    org_id: z.string().uuid(),
-    user_id: z.string().uuid(),
+    org_id: z.string().uuid().nullable(),
+    user_id: z.string().uuid().nullable(),
     type: z.enum(['bug', 'feature', 'ui', 'other']),
     subject: z.string(),
     body: z.string(),
@@ -39,6 +41,7 @@ const AdminFeedbackSchema = z
     created_at: z.string(),
     updated_at: z.string(),
     submitter_email: z.string().email().nullable(),
+    org_name: z.string().nullable(),
   })
   .openapi('AdminFeedbackRow');
 
@@ -51,12 +54,26 @@ const UpdateAdminFeedbackBody = z
   })
   .openapi('UpdateAdminFeedbackBody');
 
+const AllUsersRowSchema = z
+  .object({
+    id: z.string().uuid(),
+    email: z.string().email().nullable(),
+    role: z.enum(['owner', 'admin', 'member']),
+    is_admin: z.boolean(),
+    is_super_admin: z.boolean(),
+    org_id: z.string().uuid().nullable(),
+    org_name: z.string().nullable(),
+    created_at: z.string(),
+  })
+  .openapi('AdminAllUsersRow');
+
 const IdParam = z.object({ id: z.string().uuid() });
 
 const ListResponse = z.object({ data: z.array(AdminUserSchema) });
 const OneResponse = z.object({ data: AdminUserSchema });
 const AdminFeedbackListResponse = z.object({ data: z.array(AdminFeedbackSchema) });
 const AdminFeedbackOneResponse = z.object({ data: AdminFeedbackSchema });
+const AllUsersListResponse = z.object({ data: z.array(AllUsersRowSchema) });
 
 const ADMIN_USER_COLUMNS = [
   'id',
@@ -67,18 +84,19 @@ const ADMIN_USER_COLUMNS = [
   'created_at',
 ];
 
-const ADMIN_FEEDBACK_SELECT = [
-  'feedback.id as id',
-  'feedback.org_id as org_id',
-  'feedback.user_id as user_id',
-  'feedback.type as type',
-  'feedback.subject as subject',
-  'feedback.body as body',
-  'feedback.status as status',
-  'feedback.admin_note as admin_note',
-  'feedback.created_at as created_at',
-  'feedback.updated_at as updated_at',
-  'users.email as submitter_email',
+const ADMIN_FEEDBACK_COLUMNS = [
+  'id',
+  'org_id',
+  'user_id',
+  'submitter_email',
+  'org_name',
+  'type',
+  'subject',
+  'body',
+  'status',
+  'admin_note',
+  'created_at',
+  'updated_at',
 ];
 
 registry.registerPath({
@@ -115,14 +133,14 @@ registry.registerPath({
   method: 'get',
   path: '/api/admin/feedback',
   tags: ['admin'],
-  summary: 'List feedback for the current org (admin only)',
+  summary: 'List all product feedback across orgs (super-admin only)',
   security: [{ bearerAuth: [] }, { orgIdHeader: [] }],
   responses: {
     200: {
       description: 'Feedback',
       content: { 'application/json': { schema: AdminFeedbackListResponse } },
     },
-    403: { description: 'Not an admin' },
+    403: { description: 'Not a super-admin' },
   },
 });
 
@@ -130,7 +148,7 @@ registry.registerPath({
   method: 'patch',
   path: '/api/admin/feedback/{id}',
   tags: ['admin'],
-  summary: 'Update feedback status / admin note (admin only)',
+  summary: 'Update feedback status / admin note (super-admin only)',
   security: [{ bearerAuth: [] }, { orgIdHeader: [] }],
   request: {
     params: IdParam,
@@ -142,8 +160,23 @@ registry.registerPath({
       content: { 'application/json': { schema: AdminFeedbackOneResponse } },
     },
     400: { description: 'Validation error' },
-    403: { description: 'Not an admin' },
+    403: { description: 'Not a super-admin' },
     404: { description: 'Not found' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/admin/all-users',
+  tags: ['admin'],
+  summary: 'List all users across all orgs (super-admin only)',
+  security: [{ bearerAuth: [] }, { orgIdHeader: [] }],
+  responses: {
+    200: {
+      description: 'Users',
+      content: { 'application/json': { schema: AllUsersListResponse } },
+    },
+    403: { description: 'Not a super-admin' },
   },
 });
 
@@ -198,18 +231,15 @@ export async function handleUpdate(req: AuthenticatedRequest) {
   return { data: rows[0] };
 }
 
-export async function handleFeedbackList(req: AuthenticatedRequest) {
-  const rows = await tdb('feedback')
-    .leftJoin('users', 'users.id', 'feedback.user_id')
-    .where('feedback.org_id', req.org!.id)
-    .select(ADMIN_FEEDBACK_SELECT)
-    .orderBy('feedback.created_at', 'desc');
+export async function handleFeedbackList(_req: AuthenticatedRequest) {
+  const rows = await db('corporate.feedback')
+    .select(ADMIN_FEEDBACK_COLUMNS)
+    .orderBy('created_at', 'desc');
   return { data: rows };
 }
 
 export async function handleFeedbackUpdate(req: AuthenticatedRequest) {
   const { id } = IdParam.parse(req.params);
-  const orgId = req.org!.id;
   const body = UpdateAdminFeedbackBody.parse(req.body);
 
   const patch: Record<string, unknown> = {};
@@ -217,24 +247,38 @@ export async function handleFeedbackUpdate(req: AuthenticatedRequest) {
   if ('admin_note' in body) patch.admin_note = body.admin_note;
 
   if (Object.keys(patch).length === 0) {
-    const row = await tdb('feedback')
-      .leftJoin('users', 'users.id', 'feedback.user_id')
-      .where({ 'feedback.id': id, 'feedback.org_id': orgId })
-      .select(ADMIN_FEEDBACK_SELECT)
+    const row = await db('corporate.feedback')
+      .where({ id })
+      .select(ADMIN_FEEDBACK_COLUMNS)
       .first();
     if (!row) throw new AppError(404, 'Feedback not found');
     return { data: row };
   }
 
-  const updated = await tdb('feedback').where({ id, org_id: orgId }).update(patch);
-  if (!updated) throw new AppError(404, 'Feedback not found');
+  const rows = await db('corporate.feedback')
+    .where({ id })
+    .update(patch)
+    .returning(ADMIN_FEEDBACK_COLUMNS);
+  if (!rows.length) throw new AppError(404, 'Feedback not found');
+  return { data: rows[0] };
+}
 
-  const row = await tdb('feedback')
-    .leftJoin('users', 'users.id', 'feedback.user_id')
-    .where({ 'feedback.id': id, 'feedback.org_id': orgId })
-    .select(ADMIN_FEEDBACK_SELECT)
-    .first();
-  return { data: row };
+export async function handleAllUsersList(_req: AuthenticatedRequest) {
+  const rows = await db('users')
+    .leftJoin('organizations', 'organizations.id', 'users.org_id')
+    .select(
+      'users.id as id',
+      'users.email as email',
+      'users.role as role',
+      'users.is_admin as is_admin',
+      'users.is_super_admin as is_super_admin',
+      'users.created_at as created_at',
+      'organizations.id as org_id',
+      'organizations.name as org_name'
+    )
+    .orderBy('organizations.name', 'asc')
+    .orderBy('users.created_at', 'desc');
+  return { data: rows };
 }
 
 router.get(
@@ -252,15 +296,22 @@ router.patch(
 );
 
 router.get(
+  '/all-users',
+  requireSuperAdmin(async (req, res) => {
+    res.json(await handleAllUsersList(req));
+  })
+);
+
+router.get(
   '/feedback',
-  requireAdmin(async (req, res) => {
+  requireSuperAdmin(async (req, res) => {
     res.json(await handleFeedbackList(req));
   })
 );
 
 router.patch(
   '/feedback/:id',
-  requireAdmin(async (req, res) => {
+  requireSuperAdmin(async (req, res) => {
     res.json(await handleFeedbackUpdate(req));
   })
 );
@@ -271,4 +322,5 @@ export {
   AdminUserSchema,
   UpdateAdminFeedbackBody,
   AdminFeedbackSchema,
+  AllUsersRowSchema,
 };

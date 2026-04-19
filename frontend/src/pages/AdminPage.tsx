@@ -9,15 +9,21 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { useAdminUsers, useUpdateAdminUser } from "@/hooks/use-admin";
+import {
+  useAdminAllUsers,
+  useAdminUsers,
+  useUpdateAdminUser,
+} from "@/hooks/use-admin";
 import {
   useAdminFeedback,
   useUpdateAdminFeedback,
 } from "@/hooks/use-feedback";
+import { useMe } from "@/hooks/use-me";
 import { useToast } from "@/hooks/use-toast";
 import { ApiError } from "@/lib/api";
 import type {
   AdminUserRow,
+  AllUsersRow,
   FeedbackRow,
   FeedbackStatus,
   FeedbackType,
@@ -163,6 +169,76 @@ function UsersTab() {
   );
 }
 
+// ------- All Users tab (super-admin only, cross-org read) -------
+
+function AllUsersTab({ enabled }: { enabled: boolean }) {
+  const listQ = useAdminAllUsers(enabled);
+
+  if (listQ.isLoading) {
+    return (
+      <p className="text-sm text-[var(--color-muted-foreground)]">Loading…</p>
+    );
+  }
+  if (listQ.error) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-sm text-[var(--color-destructive)]">
+          {listQ.error instanceof ApiError
+            ? listQ.error.message
+            : "Failed to load users"}
+        </CardContent>
+      </Card>
+    );
+  }
+  const rows: AllUsersRow[] = listQ.data ?? [];
+  if (rows.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-sm text-[var(--color-muted-foreground)]">
+          No users yet.
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-xs uppercase tracking-wide text-[var(--color-muted-foreground)]">
+              <tr className="border-b border-[var(--color-border)]">
+                <th className="px-4 py-2 text-left">Email</th>
+                <th className="px-4 py-2 text-left">Org</th>
+                <th className="px-4 py-2 text-left">Role</th>
+                <th className="px-4 py-2 text-left">Admin</th>
+                <th className="px-4 py-2 text-left">Super-admin</th>
+                <th className="px-4 py-2 text-left">Joined</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((u) => (
+                <tr
+                  key={u.id}
+                  className="border-b border-[var(--color-border)] last:border-b-0"
+                >
+                  <td className="px-4 py-2">{u.email ?? "(no email)"}</td>
+                  <td className="px-4 py-2">{u.org_name ?? "—"}</td>
+                  <td className="px-4 py-2">{u.role}</td>
+                  <td className="px-4 py-2">{u.is_admin ? "Yes" : "—"}</td>
+                  <td className="px-4 py-2">
+                    {u.is_super_admin ? "Yes" : "—"}
+                  </td>
+                  <td className="px-4 py-2">{formatDate(u.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ------- Feedback tab -------
 
 const STATUS_OPTIONS: { value: FeedbackStatus; label: string }[] = [
@@ -221,7 +297,17 @@ function FeedbackTriageRow({ row }: { row: FeedbackRow }) {
               <span className="inline-flex items-center rounded-md border border-[var(--color-border)] px-2 py-0.5 text-xs font-medium text-[var(--color-muted-foreground)] mr-2">
                 {TYPE_LABELS[row.type]}
               </span>
-              {row.submitter_email ?? "(unknown user)"} · {formatDateTime(row.created_at)}
+              {row.submitter_email ?? "(unknown user)"}
+              {row.org_name ? (
+                <>
+                  {" · "}
+                  <span className="text-[var(--color-foreground)]">
+                    {row.org_name}
+                  </span>
+                </>
+              ) : null}
+              {" · "}
+              {formatDateTime(row.created_at)}
             </CardDescription>
           </div>
           <select
@@ -283,8 +369,18 @@ function FeedbackTriageRow({ row }: { row: FeedbackRow }) {
   );
 }
 
-function FeedbackTab() {
-  const listQ = useAdminFeedback();
+function FeedbackTab({ enabled }: { enabled: boolean }) {
+  const listQ = useAdminFeedback(enabled);
+
+  if (!enabled) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-sm text-[var(--color-muted-foreground)]">
+          Product feedback triage is restricted to Fratelli super-admins.
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (listQ.isLoading) {
     return (
@@ -323,16 +419,28 @@ function FeedbackTab() {
 
 // ------- Tabbed page -------
 
-type TabKey = "users" | "feedback";
+type TabKey = "users" | "all-users" | "feedback";
 
 export function AdminPage() {
+  const meQ = useMe();
+  const isSuperAdmin = meQ.data?.user?.is_super_admin === true;
   const [tab, setTab] = React.useState<TabKey>("users");
+
+  React.useEffect(() => {
+    if (!isSuperAdmin && (tab === "all-users" || tab === "feedback")) {
+      setTab("users");
+    }
+  }, [isSuperAdmin, tab]);
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
         <p className="text-sm text-[var(--color-muted-foreground)]">
-          Manage users and triage feedback for your organization.
+          Manage users in your organization
+          {isSuperAdmin
+            ? " — and triage product feedback across all orgs."
+            : "."}
         </p>
       </div>
 
@@ -344,15 +452,31 @@ export function AdminPage() {
         <TabButton active={tab === "users"} onClick={() => setTab("users")}>
           Users
         </TabButton>
-        <TabButton
-          active={tab === "feedback"}
-          onClick={() => setTab("feedback")}
-        >
-          Feedback
-        </TabButton>
+        {isSuperAdmin ? (
+          <>
+            <TabButton
+              active={tab === "all-users"}
+              onClick={() => setTab("all-users")}
+            >
+              All Users
+            </TabButton>
+            <TabButton
+              active={tab === "feedback"}
+              onClick={() => setTab("feedback")}
+            >
+              Feedback
+            </TabButton>
+          </>
+        ) : null}
       </div>
 
-      {tab === "users" ? <UsersTab /> : <FeedbackTab />}
+      {tab === "users" ? (
+        <UsersTab />
+      ) : tab === "all-users" ? (
+        <AllUsersTab enabled={isSuperAdmin} />
+      ) : (
+        <FeedbackTab enabled={isSuperAdmin} />
+      )}
     </div>
   );
 }

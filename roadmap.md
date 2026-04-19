@@ -76,9 +76,16 @@
 * after clicking 'run now' in the automate accounts receivable modal, the button isn't disabled and the modal doesn't dismiss
     - looks like the user can press it a second time if they want
 
+### Feedback architecture fix (completed 2026-04-19)
+
+* the original feedback feature was misframed as intra-org triage (RLS-scoped `public.feedback`); it should always have been product feedback from end users → Fratelli
+* moved storage to `corporate.feedback` (no RLS, denormalized `submitter_email` + `org_name`, nullable FKs `ON DELETE SET NULL` so rows survive user/org churn) — multi-tenant isolation guarantees on the `public` schema are unchanged
+* added `users.is_super_admin` flag + `requireSuperAdmin` middleware (raw `db`, not org-scoped); founder bootstrapped via the existing `01_admin_bootstrap.js` seeds
+* `GET /api/admin/feedback` + `PATCH /api/admin/feedback/:id` now super-admin gated and cross-org; new `GET /api/admin/all-users` surfaces every user across every org for the founder
+* frontend: `AdminPage` adds "All Users" tab gated by `is_super_admin`, Feedback tab shows the org column; `FeedbackPage` copy updated to clarify Fratelli reviews submissions
+* migration copies every existing `public.feedback` row into the new corporate table (denormalizing email + org_name at copy time) before dropping the old table — Timothy's submission preserved
+
 ## In Progress
-
-
 
 ## Pending
 
