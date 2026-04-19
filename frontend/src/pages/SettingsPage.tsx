@@ -558,8 +558,7 @@ function RunNowButton({
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
             className="bg-[var(--color-destructive)] text-[var(--color-destructive-foreground)]"
-            onClick={(e) => {
-              e.preventDefault();
+            onClick={() => {
               void onConfirm();
             }}
           >

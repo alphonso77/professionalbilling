@@ -59,8 +59,6 @@
 * feedback goes to our DB, surfaced in the admin area
 * optional: user-side area showing their submitted feedback + status (pending, acknowledged, clarification requested)
 
-## In Progress
-
 ### Phase 2D - (operational hardening)
 
 * audit the code, RLS should be defense in depth, why didn't the app code take up the slack when the mis-configured env vars caused the RLS failure
@@ -77,6 +75,9 @@
 
 * after clicking 'run now' in the automate accounts receivable modal, the button isn't disabled and the modal doesn't dismiss
     - looks like the user can press it a second time if they want
+
+## In Progress
+
 
 
 ## Pending
