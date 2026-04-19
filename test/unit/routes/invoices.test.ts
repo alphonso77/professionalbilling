@@ -502,7 +502,7 @@ describe('services/invoices — voidInvoice', () => {
     });
 
     const cancelCalls: Array<[string, string]> = [];
-    const result = await voidInvoice('inv_a', db as any, {
+    const result = await voidInvoice('inv_a', 'org_1', db as any, {
       cancelPaymentIntent: async (piId, acct) => {
         cancelCalls.push([piId, acct]);
       },
@@ -523,7 +523,7 @@ describe('services/invoices — voidInvoice', () => {
 
     let caught: unknown;
     try {
-      await voidInvoice('inv_a', db as any, {
+      await voidInvoice('inv_a', 'org_1', db as any, {
         cancelPaymentIntent: async () => {
           throw new Error('should not be called');
         },
@@ -552,12 +552,12 @@ describe('services/invoices — deleteDraft', () => {
       status: 'open',
     });
 
-    const ok = await deleteDraft('inv_draft', db as any);
+    const ok = await deleteDraft('inv_draft', 'org_1', db as any);
     expect(ok).to.deep.equal({ id: 'inv_draft' });
 
     let caught: unknown;
     try {
-      await deleteDraft('inv_open', db as any);
+      await deleteDraft('inv_open', 'org_1', db as any);
     } catch (err) {
       caught = err;
     }
@@ -593,6 +593,7 @@ describe('services/invoices — updateDraft + listInvoices', () => {
     const result = await updateDraft(
       'inv_a',
       { removeLineItemIds: ['li_1'], notes: 'Net-15' },
+      'org_1',
       db as any
     );
     expect(Number(result.invoice.subtotal_cents)).to.equal(30_000);
@@ -630,7 +631,7 @@ describe('routes/invoices — handleSend skip logic', () => {
     });
 
     let enqueued = 0;
-    const res = await handleSend('inv_s', db as any, async () => {
+    const res = await handleSend('inv_s', 'org_1', db as any, async () => {
       enqueued += 1;
     });
     expect(enqueued).to.equal(0);
@@ -663,7 +664,7 @@ describe('routes/invoices — handleSend skip logic', () => {
     });
 
     let enqueued = 0;
-    const res = await handleSend('inv_e', db as any, async () => {
+    const res = await handleSend('inv_e', 'org_1', db as any, async () => {
       enqueued += 1;
     });
     expect(enqueued).to.equal(0);
@@ -688,7 +689,7 @@ describe('routes/invoices — handleSend skip logic', () => {
     });
 
     let enqueued = 0;
-    await handleSend('inv_e2', db as any, async () => {
+    await handleSend('inv_e2', 'org_1', db as any, async () => {
       enqueued += 1;
     });
     expect(enqueued).to.equal(0);
@@ -710,7 +711,7 @@ describe('routes/invoices — handleSend skip logic', () => {
     });
 
     let enqueued: string | null = null;
-    const res = await handleSend('inv_ok', db as any, async (invoiceId) => {
+    const res = await handleSend('inv_ok', 'org_1', db as any, async (invoiceId) => {
       enqueued = invoiceId;
     });
     expect(enqueued).to.equal('inv_ok');
@@ -731,7 +732,7 @@ describe('routes/invoices — handleSend skip logic', () => {
 
     let caught: unknown;
     try {
-      await handleSend('inv_draft', db as any, async () => {});
+      await handleSend('inv_draft', 'org_1', db as any, async () => {});
     } catch (err) {
       caught = err;
     }
@@ -765,7 +766,7 @@ describe('routes/invoices — paymentUrl surfacing on detail', () => {
   it('includes paymentUrl on an open invoice that has a payment_token', async () => {
     const db = makeMockDb();
     seedOpenInvoice(db, 'inv_1', 'tok_abc');
-    const res = await handleGet('inv_1', db as any);
+    const res = await handleGet('inv_1', 'org_1', db as any);
     const body = res.data as { paymentUrl?: string };
     expect(body.paymentUrl).to.equal(`${FE}/pay/inv_1?token=tok_abc`);
   });
@@ -783,7 +784,7 @@ describe('routes/invoices — paymentUrl surfacing on detail', () => {
       total_cents: 10_000,
       subtotal_cents: 10_000,
     });
-    const res = await handleGet('inv_draft', db as any);
+    const res = await handleGet('inv_draft', 'org_1', db as any);
     expect((res.data as any).paymentUrl).to.equal(undefined);
   });
 
@@ -800,7 +801,7 @@ describe('routes/invoices — paymentUrl surfacing on detail', () => {
       total_cents: 10_000,
       subtotal_cents: 10_000,
     });
-    const res = await handleGet('inv_paid', db as any);
+    const res = await handleGet('inv_paid', 'org_1', db as any);
     expect((res.data as any).paymentUrl).to.equal(undefined);
   });
 
@@ -817,7 +818,7 @@ describe('routes/invoices — paymentUrl surfacing on detail', () => {
       total_cents: 10_000,
       subtotal_cents: 10_000,
     });
-    const res = await handleGet('inv_void', db as any);
+    const res = await handleGet('inv_void', 'org_1', db as any);
     expect((res.data as any).paymentUrl).to.equal(undefined);
   });
 
@@ -855,7 +856,7 @@ describe('routes/invoices — detail response does not leak credentials', () => 
       stripe_client_secret: 'pi_secret',
     });
 
-    const { invoice, items, client } = await getInvoiceWithItems('inv_a', db as any);
+    const { invoice, items, client } = await getInvoiceWithItems('inv_a', 'org_1', db as any);
     // Simulate what the route does: drop token, null out client_secret for non-open.
     const payload: any = { ...invoice, payment_token: null, line_items: items, client };
     if (payload.status !== 'open') payload.stripe_client_secret = null;
@@ -890,7 +891,7 @@ describe('routes/invoices — handleGet seeded-invoice gating on live Stripe', (
       seeded_at: '2026-04-18T00:00:00Z',
     });
 
-    const res = await handleGet('inv_seeded', db as any);
+    const res = await handleGet('inv_seeded', 'org_1', db as any);
     const body = res.data as {
       stripeClientSecret: string | null;
       paymentUnavailableReason?: string;
@@ -980,7 +981,7 @@ describe('routes/invoices — handleRejectApproval guards', () => {
 
     let caught: unknown;
     try {
-      await handleRejectApproval('inv_manual', db as any);
+      await handleRejectApproval('inv_manual', 'org_1', db as any);
     } catch (err) {
       caught = err;
     }
@@ -1001,7 +1002,7 @@ describe('routes/invoices — handleRejectApproval guards', () => {
 
     let caught: unknown;
     try {
-      await handleRejectApproval('inv_open', db as any);
+      await handleRejectApproval('inv_open', 'org_1', db as any);
     } catch (err) {
       caught = err;
     }
@@ -1020,7 +1021,7 @@ describe('routes/invoices — handleRejectApproval guards', () => {
       auto_generated_at: '2026-04-18T00:00:00Z',
     });
 
-    const res = await handleRejectApproval('inv_ar', db as any);
+    const res = await handleRejectApproval('inv_ar', 'org_1', db as any);
     expect(res).to.deep.equal({ data: { deleted: true } });
     expect(db._tables.invoices.find((i) => i.id === 'inv_ar')).to.equal(undefined);
   });

@@ -74,12 +74,12 @@ export async function handleList(deps: PlatformsDeps = defaultDeps) {
 }
 
 export async function handleDelete(
-  params: { id: string; orgId: string },
+  params: { id: string; orgId: string; userId?: string; userEmail?: string },
   deps: PlatformsDeps = defaultDeps
 ): Promise<void> {
   const row = await deps
     .tdb('platforms')
-    .where({ id: params.id })
+    .where({ id: params.id, org_id: params.orgId })
     .select(
       'id',
       'type',
@@ -96,12 +96,14 @@ export async function handleDelete(
 
   let status: 'processed' | 'error' = 'processed';
   let errorDetail: string | null = null;
+  let alreadyRevoked = false;
   try {
     const result = await deps.deauthorize({ stripeUserId });
+    alreadyRevoked = result.alreadyRevoked ?? false;
     logger.info('Stripe deauthorized', {
       orgId: params.orgId,
       stripeUserId,
-      alreadyRevoked: result.alreadyRevoked ?? false,
+      alreadyRevoked,
     });
   } catch (err) {
     status = 'error';
@@ -113,6 +115,18 @@ export async function handleDelete(
     });
   }
 
+  const org = (await deps
+    .tdb('organizations')
+    .where({ id: params.orgId })
+    .select('name')
+    .first()) as { name: string } | undefined;
+
+  const deleted = await deps
+    .tdb('platforms')
+    .where({ id: params.id, org_id: params.orgId })
+    .del();
+  const platformRowDeleted = Number(deleted) > 0;
+
   await deps.db('audit_log').insert({
     source: 'stripe',
     org_id: params.orgId,
@@ -120,9 +134,20 @@ export async function handleDelete(
     external_id: stripeUserId,
     status,
     error_detail: errorDetail,
+    payload: {
+      stripe_account_id: stripeUserId,
+      platform_row_id: row.id,
+      platform_type: row.type,
+      platform_row_existed_before: true,
+      platform_row_deleted: platformRowDeleted,
+      already_revoked: alreadyRevoked,
+      app_org_id: params.orgId,
+      app_org_name: org?.name ?? null,
+      initiator_user_id: params.userId ?? null,
+      initiator_email: params.userEmail ?? null,
+      triggered_by: 'api.platforms.delete',
+    },
   });
-
-  await deps.tdb('platforms').where({ id: params.id }).del();
 }
 
 interface PlatformRow {
@@ -178,7 +203,12 @@ router.delete(
   '/:id',
   tenantScope(async (req, res) => {
     const { id } = IdParam.parse(req.params);
-    await handleDelete({ id, orgId: req.org!.id });
+    await handleDelete({
+      id,
+      orgId: req.org!.id,
+      userId: req.userId,
+      userEmail: req.userEmail,
+    });
     res.status(204).send();
   })
 );

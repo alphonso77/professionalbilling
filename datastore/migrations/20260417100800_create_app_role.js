@@ -8,6 +8,13 @@
  *
  * The password is set from PROFESSIONALBILLING_APP_PASSWORD env var if present,
  * otherwise the role stays NOLOGIN and operators can set it manually.
+ *
+ * PASSWORD ALPHABET CONSTRAINT: PROFESSIONALBILLING_APP_PASSWORD must be URL-safe
+ * (no `@`, `:`, `/`, `?`, `#`, `%`, no whitespace) because it's interpolated into
+ * DATABASE_APP_URL. Must also be safe for single-quote wrapping via `%L` in the
+ * ALTER ROLE path above. Hex (64 chars from `openssl rand -hex 32`) is the
+ * canonical choice and is what prod uses. Special characters parse silently
+ * wrong in either path → cross-org data leak.
  */
 exports.up = async function (knex) {
   const pw = process.env.PROFESSIONALBILLING_APP_PASSWORD;

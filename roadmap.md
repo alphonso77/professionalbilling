@@ -73,6 +73,12 @@
 * **Stripe Connect for Tim's Law Firm.** Demo org has no `platforms` row; either connect Stripe there (test mode) or document that AR/payment demos must be done in John's Organization.
 * **Audit log retention for `oauth.deauthorize` events.** Saw 4 deauthorize events in the last 24h with no surrounding context for *why*; consider richer payload capture (which user initiated, from where) so future investigations don't have to guess.
 
+### Phase 2D - UAT Feedback
+
+* after clicking 'run now' in the automate accounts receivable modal, the button isn't disabled and the modal doesn't dismiss
+    - looks like the user can press it a second time if they want
+
+
 ## Pending
 
 ### Phase 2B — Complete DB reset (admin feature)

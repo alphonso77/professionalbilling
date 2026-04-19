@@ -17,6 +17,7 @@ function makeMockDb() {
   const tables: Record<string, Table> = {
     platforms: [],
     audit_log: [],
+    organizations: [],
   };
 
   function query(tableName: string): Knex.QueryBuilder {
@@ -90,6 +91,7 @@ function makeMockDb() {
   const mock: any = (t: string) => query(t);
   mock._tables = tables;
   mock._seedPlatform = (row: Row) => tables.platforms.push(row);
+  mock._seedOrg = (row: Row) => tables.organizations.push(row);
   return mock;
 }
 
@@ -265,5 +267,69 @@ describe('routes/platforms — handleDelete', () => {
       org_id: 'org_1',
     });
     expect(deps._mock._tables.platforms).to.have.length(0);
+  });
+
+  it('audit payload is enriched with initiator + org context (H3)', async () => {
+    const deps = makeDeps();
+    deps._mock._seedOrg({ id: 'org_1', name: "John's Organization" });
+    deps._mock._seedPlatform({
+      id: 'plat_1',
+      org_id: 'org_1',
+      type: 'stripe',
+      external_account_id: 'acct_abc',
+      ...makeEncryptedStripeCredentials({
+        access_token: 'sk_access_token_xyz',
+        stripe_user_id: 'acct_abc',
+      }),
+    });
+
+    await handleDelete(
+      {
+        id: 'plat_1',
+        orgId: 'org_1',
+        userId: 'user_42',
+        userEmail: 'founder@fratellisoftware.com',
+      },
+      deps
+    );
+
+    const audit = deps._mock._tables.audit_log[0] as Record<string, unknown>;
+    const payload = audit.payload as Record<string, unknown>;
+    expect(payload).to.include({
+      stripe_account_id: 'acct_abc',
+      platform_row_id: 'plat_1',
+      platform_type: 'stripe',
+      platform_row_existed_before: true,
+      platform_row_deleted: true,
+      already_revoked: false,
+      app_org_id: 'org_1',
+      app_org_name: "John's Organization",
+      initiator_user_id: 'user_42',
+      initiator_email: 'founder@fratellisoftware.com',
+      triggered_by: 'api.platforms.delete',
+    });
+  });
+
+  it('audit payload falls back to nulls when initiator + org row are absent', async () => {
+    const deps = makeDeps();
+    deps._mock._seedPlatform({
+      id: 'plat_1',
+      org_id: 'org_1',
+      type: 'stripe',
+      external_account_id: 'acct_abc',
+      ...makeEncryptedStripeCredentials({
+        access_token: 'sk_access_token_xyz',
+        stripe_user_id: 'acct_abc',
+      }),
+    });
+
+    await handleDelete({ id: 'plat_1', orgId: 'org_1' }, deps);
+
+    const audit = deps._mock._tables.audit_log[0] as Record<string, unknown>;
+    const payload = audit.payload as Record<string, unknown>;
+    expect(payload.app_org_name).to.equal(null);
+    expect(payload.initiator_user_id).to.equal(null);
+    expect(payload.initiator_email).to.equal(null);
+    expect(payload.triggered_by).to.equal('api.platforms.delete');
   });
 });

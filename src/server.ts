@@ -10,6 +10,7 @@ import { env } from './config/env';
 import { logger } from './utils/logger';
 import { errorHandler } from './middleware/error-handler';
 import { clerkSession, requireOrg } from './middleware/auth';
+import { runStartupChecks } from './services/startup-checks';
 
 // Eagerly import each route so its OpenAPI registrations land in the registry
 // before we build the doc.
@@ -121,11 +122,14 @@ app.use('/api/ar-settings', requireOrg(), arSettingsRoutes);
 // ---- Error handler (last) ----
 app.use(errorHandler);
 
-app.listen(env.PORT, () => {
-  logger.info(`Professional Billing API on http://localhost:${env.PORT}`, {
-    env: env.NODE_ENV,
-    swagger: `${env.API_BASE_URL}/api/swagger`,
+void (async () => {
+  await runStartupChecks();
+  app.listen(env.PORT, () => {
+    logger.info(`Professional Billing API on http://localhost:${env.PORT}`, {
+      env: env.NODE_ENV,
+      swagger: `${env.API_BASE_URL}/api/swagger`,
+    });
   });
-});
+})();
 
 export default app;

@@ -76,7 +76,7 @@ router.post(
       throw new AppError(500, 'Stripe Connect not configured (STRIPE_CLIENT_ID missing)');
     }
 
-    const existing = await tdb('platforms').where({ type: 'stripe' }).first();
+    const existing = await tdb('platforms').where({ type: 'stripe', org_id: req.org!.id }).first();
     if (existing) throw new AppError(409, 'Stripe is already connected for this org');
 
     const state = crypto.randomBytes(32).toString('hex');

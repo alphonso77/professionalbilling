@@ -84,7 +84,7 @@ registry.registerPath({
 export async function handleList(req: AuthenticatedRequest) {
   if (!req.userId) throw new AppError(401, 'Authentication required');
   const rows = await tdb('feedback')
-    .where({ user_id: req.userId })
+    .where({ user_id: req.userId, org_id: req.org!.id })
     .select(FEEDBACK_COLUMNS)
     .orderBy('created_at', 'desc');
   return { data: rows };

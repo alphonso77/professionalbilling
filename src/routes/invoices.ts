@@ -288,13 +288,13 @@ export async function handleList(
   return { data: await listInvoices(query, t) };
 }
 
-export async function handleGet(id: string, t = tdb) {
-  const { invoice, items, client } = await getInvoiceWithItems(id, t);
+export async function handleGet(id: string, orgId: string, t = tdb) {
+  const { invoice, items, client } = await getInvoiceWithItems(id, orgId, t);
 
   let paymentUnavailableReason: 'seed_requires_test_mode' | null = null;
   if (invoice.status === 'open' && !invoice.stripe_payment_intent_id) {
     try {
-      const ensured = await ensurePaymentIntent(id, t);
+      const ensured = await ensurePaymentIntent(id, t, undefined, orgId);
       invoice.stripe_payment_intent_id = ensured.paymentIntentId;
       invoice.stripe_client_secret = ensured.clientSecret;
     } catch (err) {
@@ -309,7 +309,7 @@ export async function handleGet(id: string, t = tdb) {
   let connectedAccountId: string | null = null;
   if (invoice.status === 'open') {
     const platform = (await t('platforms')
-      .where({ type: 'stripe' })
+      .where({ type: 'stripe', org_id: orgId })
       .select('external_account_id')
       .first()) as { external_account_id: string | null } | undefined;
     connectedAccountId = platform?.external_account_id ?? null;
@@ -338,8 +338,13 @@ export async function handleCreate(body: z.infer<typeof CreateBody>, orgId: stri
   };
 }
 
-export async function handleUpdate(id: string, body: z.infer<typeof UpdateBody>, t = tdb) {
-  const { invoice, items, client } = await updateDraft(id, body, t);
+export async function handleUpdate(
+  id: string,
+  body: z.infer<typeof UpdateBody>,
+  orgId: string,
+  t = tdb
+) {
+  const { invoice, items, client } = await updateDraft(id, body, orgId, t);
   return {
     data: buildDetailPayload(
       serializeInvoice(invoice),
@@ -363,12 +368,12 @@ export async function handleFinalize(id: string, orgId: string, t = tdb) {
   };
 }
 
-export async function handleVoid(id: string, t = tdb) {
-  return { data: await voidInvoice(id, t) };
+export async function handleVoid(id: string, orgId: string, t = tdb) {
+  return { data: await voidInvoice(id, orgId, t) };
 }
 
-export async function handleDelete(id: string, t = tdb) {
-  return { data: await deleteDraft(id, t) };
+export async function handleDelete(id: string, orgId: string, t = tdb) {
+  return { data: await deleteDraft(id, orgId, t) };
 }
 
 type EnqueueSend = (invoiceId: string) => Promise<unknown>;
@@ -385,7 +390,7 @@ export async function handleApproveSend(
   t = tdb,
   enqueue: EnqueueSend = defaultEnqueueSend
 ) {
-  const invoice = (await t('invoices').where({ id }).first()) as
+  const invoice = (await t('invoices').where({ id, org_id: orgId }).first()) as
     | { id: string; status: string; auto_generated_at: string | Date | null }
     | undefined;
   if (!invoice) throw new AppError(404, 'Invoice not found');
@@ -399,7 +404,7 @@ export async function handleApproveSend(
   const finalized = await finalizeInvoice(id, orgId, t);
   // finalizeInvoice already flipped status to 'open' and set number + payment_token.
   // Delegate demo-skip + enqueue through the same code path as handleSend.
-  await handleSend(id, t, enqueue);
+  await handleSend(id, orgId, t, enqueue);
   return {
     data: buildDetailPayload(
       serializeInvoice(finalized.invoice),
@@ -411,8 +416,8 @@ export async function handleApproveSend(
   };
 }
 
-export async function handleRejectApproval(id: string, t = tdb) {
-  const invoice = (await t('invoices').where({ id }).first()) as
+export async function handleRejectApproval(id: string, orgId: string, t = tdb) {
+  const invoice = (await t('invoices').where({ id, org_id: orgId }).first()) as
     | { id: string; status: string; auto_generated_at: string | Date | null }
     | undefined;
   if (!invoice) throw new AppError(404, 'Invoice not found');
@@ -423,16 +428,17 @@ export async function handleRejectApproval(id: string, t = tdb) {
     throw new AppError(400, 'Only draft invoices can be rejected', 'INVALID_STATUS');
   }
   // Line items cascade via FK; their time_entry_id refs disappear, re-unbilling them.
-  await t('invoices').where({ id }).del();
+  await t('invoices').where({ id, org_id: orgId }).del();
   return { data: { deleted: true } };
 }
 
 export async function handleSend(
   id: string,
+  orgId: string,
   t = tdb,
   enqueue: EnqueueSend = defaultEnqueueSend
 ) {
-  const { invoice, client } = await getInvoiceWithItems(id, t);
+  const { invoice, client } = await getInvoiceWithItems(id, orgId, t);
   if (invoice.status !== 'open') {
     throw new AppError(409, 'Only open invoices can be sent');
   }
@@ -471,7 +477,7 @@ router.get(
   '/:id',
   tenantScope(async (req, res) => {
     const { id } = IdParam.parse(req.params);
-    res.json(await handleGet(id));
+    res.json(await handleGet(id, req.org!.id));
   })
 );
 
@@ -489,7 +495,7 @@ router.patch(
   tenantScope(async (req, res) => {
     const { id } = IdParam.parse(req.params);
     const body = UpdateBody.parse(req.body);
-    res.json(await handleUpdate(id, body));
+    res.json(await handleUpdate(id, body, req.org!.id));
   })
 );
 
@@ -505,7 +511,7 @@ router.post(
   '/:id/send',
   tenantScope(async (req, res) => {
     const { id } = IdParam.parse(req.params);
-    res.json(await handleSend(id));
+    res.json(await handleSend(id, req.org!.id));
   })
 );
 
@@ -513,7 +519,7 @@ router.post(
   '/:id/void',
   tenantScope(async (req, res) => {
     const { id } = IdParam.parse(req.params);
-    res.json(await handleVoid(id));
+    res.json(await handleVoid(id, req.org!.id));
   })
 );
 
@@ -521,7 +527,7 @@ router.delete(
   '/:id',
   tenantScope(async (req, res) => {
     const { id } = IdParam.parse(req.params);
-    res.json(await handleDelete(id));
+    res.json(await handleDelete(id, req.org!.id));
   })
 );
 
@@ -537,7 +543,7 @@ router.post(
   '/:id/reject-approval',
   tenantScope(async (req, res) => {
     const { id } = IdParam.parse(req.params);
-    res.json(await handleRejectApproval(id));
+    res.json(await handleRejectApproval(id, req.org!.id));
   })
 );
 

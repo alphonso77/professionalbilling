@@ -156,17 +156,18 @@ export async function handleList() {
 
 export async function handleUpdate(req: AuthenticatedRequest) {
   const { id } = IdParam.parse(req.params);
+  const orgId = req.org!.id;
   const body = UpdateAdminUserBody.parse(req.body);
 
   const target = (await tdb('users')
-    .where({ id })
+    .where({ id, org_id: orgId })
     .select('id', 'is_admin')
     .first()) as { id: string; is_admin: boolean } | undefined;
   if (!target) throw new AppError(404, 'User not found');
 
   if (body.is_admin === false && target.is_admin === true) {
     const otherAdmins = (await tdb('users')
-      .where({ is_admin: true })
+      .where({ is_admin: true, org_id: orgId })
       .whereNot({ id })
       .count<{ count: string }[]>({ count: '*' })
       .first()) as { count: string } | undefined;
@@ -181,12 +182,15 @@ export async function handleUpdate(req: AuthenticatedRequest) {
   if ('easter_egg_enabled' in body) patch.easter_egg_enabled = body.easter_egg_enabled;
 
   if (Object.keys(patch).length === 0) {
-    const row = await tdb('users').where({ id }).select(ADMIN_USER_COLUMNS).first();
+    const row = await tdb('users')
+      .where({ id, org_id: orgId })
+      .select(ADMIN_USER_COLUMNS)
+      .first();
     return { data: row };
   }
 
   const rows = await tdb('users')
-    .where({ id })
+    .where({ id, org_id: orgId })
     .update(patch)
     .returning(ADMIN_USER_COLUMNS);
   if (!rows.length) throw new AppError(404, 'User not found');
@@ -203,6 +207,7 @@ export async function handleFeedbackList() {
 
 export async function handleFeedbackUpdate(req: AuthenticatedRequest) {
   const { id } = IdParam.parse(req.params);
+  const orgId = req.org!.id;
   const body = UpdateAdminFeedbackBody.parse(req.body);
 
   const patch: Record<string, unknown> = {};
@@ -212,19 +217,19 @@ export async function handleFeedbackUpdate(req: AuthenticatedRequest) {
   if (Object.keys(patch).length === 0) {
     const row = await tdb('feedback')
       .leftJoin('users', 'users.id', 'feedback.user_id')
-      .where('feedback.id', id)
+      .where({ 'feedback.id': id, 'feedback.org_id': orgId })
       .select(ADMIN_FEEDBACK_SELECT)
       .first();
     if (!row) throw new AppError(404, 'Feedback not found');
     return { data: row };
   }
 
-  const updated = await tdb('feedback').where({ id }).update(patch);
+  const updated = await tdb('feedback').where({ id, org_id: orgId }).update(patch);
   if (!updated) throw new AppError(404, 'Feedback not found');
 
   const row = await tdb('feedback')
     .leftJoin('users', 'users.id', 'feedback.user_id')
-    .where('feedback.id', id)
+    .where({ 'feedback.id': id, 'feedback.org_id': orgId })
     .select(ADMIN_FEEDBACK_SELECT)
     .first();
   return { data: row };

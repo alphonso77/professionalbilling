@@ -201,8 +201,9 @@ export async function handleList() {
 
 export async function handleGet(req: AuthenticatedRequest) {
   const id = z.string().uuid().parse(req.params.id);
+  const orgId = req.org!.id;
   const row = (await tdb('clients')
-    .where({ id })
+    .where({ id, org_id: orgId })
     .select(CLIENT_COLUMNS)
     .first()) as ClientRow | undefined;
   if (!row) throw new AppError(404, 'Client not found');
@@ -226,6 +227,7 @@ export async function handleCreate(req: AuthenticatedRequest) {
 
 export async function handleUpdate(req: AuthenticatedRequest) {
   const id = z.string().uuid().parse(req.params.id);
+  const orgId = req.org!.id;
   const body = UpdateClientBody.parse(req.body);
   const patch: Record<string, unknown> = {};
   for (const k of [
@@ -244,14 +246,14 @@ export async function handleUpdate(req: AuthenticatedRequest) {
 
   if (Object.keys(patch).length === 0) {
     const row = (await tdb('clients')
-      .where({ id })
+      .where({ id, org_id: orgId })
       .select(CLIENT_COLUMNS)
       .first()) as ClientRow | undefined;
     if (!row) throw new AppError(404, 'Client not found');
     return { data: serializeClient(row) };
   }
   const rows = (await tdb('clients')
-    .where({ id })
+    .where({ id, org_id: orgId })
     .update(patch)
     .returning(CLIENT_COLUMNS)) as ClientRow[];
   if (!rows.length) throw new AppError(404, 'Client not found');
@@ -260,10 +262,11 @@ export async function handleUpdate(req: AuthenticatedRequest) {
 
 export async function handleDelete(req: AuthenticatedRequest) {
   const id = z.string().uuid().parse(req.params.id);
+  const orgId = req.org!.id;
   const force = req.query.force === 'true';
 
   const client = (await tdb('clients')
-    .where({ id })
+    .where({ id, org_id: orgId })
     .select('id', 'org_id', 'seeded_at')
     .first()) as { id: string; org_id: string; seeded_at: string | null } | undefined;
   if (!client) throw new AppError(404, 'Client not found');
@@ -276,11 +279,13 @@ export async function handleDelete(req: AuthenticatedRequest) {
     );
   }
 
-  const invoiceRows = (await tdb('invoices').where({ client_id: id }).select('id')) as Array<{
+  const invoiceRows = (await tdb('invoices')
+    .where({ client_id: id, org_id: orgId })
+    .select('id')) as Array<{
     id: string;
   }>;
   const timeEntryRows = (await tdb('time_entries')
-    .where({ client_id: id })
+    .where({ client_id: id, org_id: orgId })
     .select('id')) as Array<{ id: string }>;
   const invoiceCount = invoiceRows.length;
   const timeEntryCount = timeEntryRows.length;
@@ -308,9 +313,13 @@ export async function handleDelete(req: AuthenticatedRequest) {
 
   if (force) {
     const invDeleted =
-      invoiceCount > 0 ? await tdb('invoices').where({ client_id: id }).del() : 0;
+      invoiceCount > 0
+        ? await tdb('invoices').where({ client_id: id, org_id: orgId }).del()
+        : 0;
     const teDeleted =
-      timeEntryCount > 0 ? await tdb('time_entries').where({ client_id: id }).del() : 0;
+      timeEntryCount > 0
+        ? await tdb('time_entries').where({ client_id: id, org_id: orgId }).del()
+        : 0;
 
     if (invoiceRows.length > 0) {
       await tdb('audit_log')
@@ -341,7 +350,7 @@ export async function handleDelete(req: AuthenticatedRequest) {
     });
   }
 
-  const deleted = await tdb('clients').where({ id }).del();
+  const deleted = await tdb('clients').where({ id, org_id: orgId }).del();
   if (!deleted) throw new AppError(404, 'Client not found');
 
   if (force) {

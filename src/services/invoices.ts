@@ -131,14 +131,20 @@ export async function listInvoices(filters: {
   return rows.map(serializeInvoiceForList);
 }
 
-export async function getInvoiceWithItems(id: string, t: Tdb = tdb) {
-  const invoice = (await t('invoices').where({ id }).first()) as InvoiceRow | undefined;
+export async function getInvoiceWithItems(
+  id: string,
+  orgId: string = currentOrgId(),
+  t: Tdb = tdb
+) {
+  const invoice = (await t('invoices')
+    .where({ id, org_id: orgId })
+    .first()) as InvoiceRow | undefined;
   if (!invoice) throw new AppError(404, 'Invoice not found');
   const items = (await t('invoice_line_items')
-    .where({ invoice_id: id })
+    .where({ invoice_id: id, org_id: orgId })
     .orderBy('created_at', 'asc')) as LineItemRow[];
   const client = (await t('clients')
-    .where({ id: invoice.client_id })
+    .where({ id: invoice.client_id, org_id: orgId })
     .select('id', 'name', 'email')
     .first()) as { id: string; name: string; email: string | null } | undefined;
   return {
@@ -153,7 +159,7 @@ export async function createDraft(
   orgId: string = currentOrgId(),
   t: Tdb = tdb
 ) {
-  const client = await t('clients').where({ id: input.clientId }).first();
+  const client = await t('clients').where({ id: input.clientId, org_id: orgId }).first();
   if (!client) throw new AppError(400, 'Client not found in this org');
 
   if (!input.timeEntryIds.length) {
@@ -162,6 +168,7 @@ export async function createDraft(
 
   const entries = (await t('time_entries')
     .whereIn('id', input.timeEntryIds)
+    .where({ org_id: orgId })
     .select('*')) as Array<{
     id: string;
     client_id: string | null;
@@ -228,11 +235,18 @@ export async function createDraft(
     );
   }
 
-  return getInvoiceWithItems(inserted.id, t);
+  return getInvoiceWithItems(inserted.id, orgId, t);
 }
 
-export async function updateDraft(id: string, input: UpdateDraftInput, t: Tdb = tdb) {
-  const invoice = (await t('invoices').where({ id }).first()) as InvoiceRow | undefined;
+export async function updateDraft(
+  id: string,
+  input: UpdateDraftInput,
+  orgId: string = currentOrgId(),
+  t: Tdb = tdb
+) {
+  const invoice = (await t('invoices')
+    .where({ id, org_id: orgId })
+    .first()) as InvoiceRow | undefined;
   if (!invoice) throw new AppError(404, 'Invoice not found');
   if (invoice.status !== 'draft') {
     throw new AppError(409, 'Only draft invoices can be edited');
@@ -240,13 +254,13 @@ export async function updateDraft(id: string, input: UpdateDraftInput, t: Tdb = 
 
   if (input.removeLineItemIds?.length) {
     await t('invoice_line_items')
-      .where({ invoice_id: id })
+      .where({ invoice_id: id, org_id: orgId })
       .whereIn('id', input.removeLineItemIds)
       .del();
   }
 
   const remaining = (await t('invoice_line_items')
-    .where({ invoice_id: id })
+    .where({ invoice_id: id, org_id: orgId })
     .select('amount_cents')) as Array<{ amount_cents: string | number }>;
   const subtotal = remaining.reduce((acc, r) => acc + toNum(r.amount_cents), 0);
 
@@ -257,17 +271,23 @@ export async function updateDraft(id: string, input: UpdateDraftInput, t: Tdb = 
   if (input.dueDate !== undefined) patch.due_date = input.dueDate;
   if (input.notes !== undefined) patch.notes = input.notes;
 
-  await t('invoices').where({ id }).update(patch);
-  return getInvoiceWithItems(id, t);
+  await t('invoices').where({ id, org_id: orgId }).update(patch);
+  return getInvoiceWithItems(id, orgId, t);
 }
 
-export async function deleteDraft(id: string, t: Tdb = tdb) {
-  const invoice = (await t('invoices').where({ id }).first()) as InvoiceRow | undefined;
+export async function deleteDraft(
+  id: string,
+  orgId: string = currentOrgId(),
+  t: Tdb = tdb
+) {
+  const invoice = (await t('invoices')
+    .where({ id, org_id: orgId })
+    .first()) as InvoiceRow | undefined;
   if (!invoice) throw new AppError(404, 'Invoice not found');
   if (invoice.status !== 'draft') {
     throw new AppError(409, 'Only draft invoices can be deleted');
   }
-  await t('invoices').where({ id }).del();
+  await t('invoices').where({ id, org_id: orgId }).del();
   return { id };
 }
 
@@ -303,7 +323,9 @@ export async function finalizeInvoice(
   orgId: string = currentOrgId(),
   t: Tdb = tdb
 ) {
-  const invoice = (await t('invoices').where({ id }).first()) as InvoiceRow | undefined;
+  const invoice = (await t('invoices')
+    .where({ id, org_id: orgId })
+    .first()) as InvoiceRow | undefined;
   if (!invoice) throw new AppError(404, 'Invoice not found');
   if (invoice.status !== 'draft') {
     throw new AppError(409, 'Only draft invoices can be finalized');
@@ -318,14 +340,14 @@ export async function finalizeInvoice(
 
   const paymentToken = crypto.randomUUID();
 
-  await t('invoices').where({ id }).update({
+  await t('invoices').where({ id, org_id: orgId }).update({
     status: 'open',
     number,
     issue_date: issueDate.toISOString().slice(0, 10),
     payment_token: paymentToken,
   });
 
-  return getInvoiceWithItems(id, t);
+  return getInvoiceWithItems(id, orgId, t);
 }
 
 export interface VoidDeps {
@@ -334,6 +356,7 @@ export interface VoidDeps {
 
 export async function voidInvoice(
   id: string,
+  orgId: string = currentOrgId(),
   t: Tdb = tdb,
   deps: VoidDeps = {
     cancelPaymentIntent: async (piId, acct) => {
@@ -348,7 +371,9 @@ export async function voidInvoice(
     },
   }
 ) {
-  const invoice = (await t('invoices').where({ id }).first()) as InvoiceRow | undefined;
+  const invoice = (await t('invoices')
+    .where({ id, org_id: orgId })
+    .first()) as InvoiceRow | undefined;
   if (!invoice) throw new AppError(404, 'Invoice not found');
   if (invoice.status === 'paid') {
     throw new AppError(409, 'Paid invoices cannot be voided');
@@ -359,7 +384,7 @@ export async function voidInvoice(
 
   if (invoice.stripe_payment_intent_id) {
     const platform = (await t('platforms')
-      .where({ type: 'stripe' })
+      .where({ type: 'stripe', org_id: orgId })
       .select(
         'external_account_id',
         'credentials_encrypted',
@@ -381,14 +406,20 @@ export async function voidInvoice(
   }
 
   const [updated] = (await t('invoices')
-    .where({ id })
+    .where({ id, org_id: orgId })
     .update({ status: 'void' })
     .returning('*')) as InvoiceRow[];
   return serializeInvoice(updated);
 }
 
-export async function assertInvoiceSendable(id: string, t: Tdb = tdb) {
-  const invoice = (await t('invoices').where({ id }).first()) as InvoiceRow | undefined;
+export async function assertInvoiceSendable(
+  id: string,
+  orgId: string = currentOrgId(),
+  t: Tdb = tdb
+) {
+  const invoice = (await t('invoices')
+    .where({ id, org_id: orgId })
+    .first()) as InvoiceRow | undefined;
   if (!invoice) throw new AppError(404, 'Invoice not found');
   if (invoice.status !== 'open') {
     throw new AppError(409, 'Only open invoices can be sent');

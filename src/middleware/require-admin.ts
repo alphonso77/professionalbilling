@@ -17,7 +17,7 @@ export function requireAdmin(handler: AdminHandler): RequestHandler {
       throw new AppError(401, 'Authentication required', 'UNAUTHENTICATED');
     }
     const row = (await tdb('users')
-      .where({ id: req.userId })
+      .where({ id: req.userId, org_id: req.org!.id })
       .select('is_admin')
       .first()) as { is_admin: boolean } | undefined;
     if (!row?.is_admin) {

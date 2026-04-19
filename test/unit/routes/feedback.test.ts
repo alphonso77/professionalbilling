@@ -42,7 +42,12 @@ function makeFeedbackStub(opts: {
           conditions.push((r) => r[key] === value);
         } else {
           const cond = args[0] as Row;
-          conditions.push((r) => Object.entries(cond).every(([k, v]) => r[k] === v));
+          conditions.push((r) =>
+            Object.entries(cond).every(([k, v]) => {
+              const key = k.includes('.') ? k.split('.').pop()! : k;
+              return r[key] === v;
+            })
+          );
         }
         return api;
       },

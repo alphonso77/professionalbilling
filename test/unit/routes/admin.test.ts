@@ -89,6 +89,7 @@ function fakeReq(body: Record<string, unknown>, id: string): AuthenticatedReques
   return {
     params: { id },
     body,
+    org: { id: 'org_1' },
   } as unknown as AuthenticatedRequest;
 }
 
@@ -153,7 +154,7 @@ describe('routes/admin — handleUpdate last-admin guard', () => {
 
   it('rejects demoting the only admin with LAST_ADMIN', async () => {
     const trx = makeUsersStub([
-      { id: TARGET, email: 'solo@x.com', role: 'owner', is_admin: true, easter_egg_enabled: false, created_at: '2026-04-18T00:00:00Z' },
+      { id: TARGET, org_id: 'org_1', email: 'solo@x.com', role: 'owner', is_admin: true, easter_egg_enabled: false, created_at: '2026-04-18T00:00:00Z' },
     ]);
 
     let caught: unknown;
@@ -172,8 +173,8 @@ describe('routes/admin — handleUpdate last-admin guard', () => {
   it('permits demoting an admin when another admin exists', async () => {
     const OTHER = '00000000-0000-0000-0000-000000000002';
     const trx = makeUsersStub([
-      { id: TARGET, email: 'a@x.com', role: 'owner', is_admin: true, easter_egg_enabled: false, created_at: '2026-04-18T00:00:00Z' },
-      { id: OTHER, email: 'b@x.com', role: 'admin', is_admin: true, easter_egg_enabled: false, created_at: '2026-04-18T00:00:00Z' },
+      { id: TARGET, org_id: 'org_1', email: 'a@x.com', role: 'owner', is_admin: true, easter_egg_enabled: false, created_at: '2026-04-18T00:00:00Z' },
+      { id: OTHER, org_id: 'org_1', email: 'b@x.com', role: 'admin', is_admin: true, easter_egg_enabled: false, created_at: '2026-04-18T00:00:00Z' },
     ]);
 
     const result = await runAsTenant(trx, () =>
@@ -184,7 +185,7 @@ describe('routes/admin — handleUpdate last-admin guard', () => {
 
   it('permits toggling easter_egg_enabled without touching is_admin', async () => {
     const trx = makeUsersStub([
-      { id: TARGET, email: 'a@x.com', role: 'owner', is_admin: true, easter_egg_enabled: false, created_at: '2026-04-18T00:00:00Z' },
+      { id: TARGET, org_id: 'org_1', email: 'a@x.com', role: 'owner', is_admin: true, easter_egg_enabled: false, created_at: '2026-04-18T00:00:00Z' },
     ]);
 
     const result = await runAsTenant(trx, () =>

@@ -85,6 +85,7 @@ export async function handleList(req: AuthenticatedRequest) {
   const clientId = query.clientId ?? query.client_id;
 
   const qb = tdb('time_entries as te')
+    .where('te.org_id', req.org!.id)
     .select('te.*')
     .orderBy('te.started_at', 'desc');
   if (clientId) qb.where('te.client_id', clientId);

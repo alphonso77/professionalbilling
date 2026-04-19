@@ -41,10 +41,16 @@ interface InvoiceRow {
 export async function ensurePaymentIntent(
   invoiceId: string,
   t: Tdb,
-  deps: EnsurePaymentIntentDeps = { createPaymentIntent: createInvoicePaymentIntent }
+  deps: EnsurePaymentIntentDeps = { createPaymentIntent: createInvoicePaymentIntent },
+  orgId?: string
 ): Promise<EnsuredPaymentIntent> {
+  // `orgId` is optional because the public-pay flow authenticates via
+  // payment_token (not an org context). Authenticated callers pass it so the
+  // query carries an explicit org filter even if RLS is misconfigured.
+  const where: Record<string, unknown> = { id: invoiceId };
+  if (orgId) where.org_id = orgId;
   const invoice = (await t('invoices')
-    .where({ id: invoiceId })
+    .where(where)
     .forUpdate()
     .first()) as InvoiceRow | undefined;
   if (!invoice) throw new AppError(404, 'Invoice not found');
@@ -91,7 +97,7 @@ export async function ensurePaymentIntent(
   const connectedAccountId = resolveConnectedAccountId(platform);
 
   const client = (await t('clients')
-    .where({ id: invoice.client_id })
+    .where({ id: invoice.client_id, org_id: invoice.org_id })
     .select('email')
     .first()) as { email: string | null } | undefined;
 
@@ -108,10 +114,12 @@ export async function ensurePaymentIntent(
     connectedAccountId
   );
 
-  await t('invoices').where({ id: invoiceId }).update({
-    stripe_payment_intent_id: pi.paymentIntentId,
-    stripe_client_secret: pi.clientSecret,
-  });
+  await t('invoices')
+    .where({ id: invoiceId, org_id: invoice.org_id })
+    .update({
+      stripe_payment_intent_id: pi.paymentIntentId,
+      stripe_client_secret: pi.clientSecret,
+    });
 
   return { paymentIntentId: pi.paymentIntentId, clientSecret: pi.clientSecret };
 }

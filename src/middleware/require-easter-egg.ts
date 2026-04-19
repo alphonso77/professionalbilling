@@ -13,7 +13,7 @@ export function requireEasterEgg(handler: TenantHandler): RequestHandler {
       throw new AppError(401, 'Authentication required', 'UNAUTHENTICATED');
     }
     const row = (await tdb('users')
-      .where({ id: req.userId })
+      .where({ id: req.userId, org_id: req.org!.id })
       .select('easter_egg_enabled')
       .first()) as { easter_egg_enabled: boolean } | undefined;
     if (!row?.easter_egg_enabled) {

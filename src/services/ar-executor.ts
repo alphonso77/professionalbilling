@@ -239,7 +239,7 @@ export async function executeAR(
       const number = await allocateNextNumber(orgId, year, t);
       const paymentToken = crypto.randomUUID();
 
-      await t('invoices').where({ id: invoice.id }).update({
+      await t('invoices').where({ id: invoice.id, org_id: orgId }).update({
         status: 'open',
         number,
         issue_date: ymdUtc(now),
@@ -339,7 +339,7 @@ export async function executeAR(
       });
     }
 
-    await t('invoices').where({ id: inv.id }).update({
+    await t('invoices').where({ id: inv.id, org_id: orgId }).update({
       reminders_sent_count: reminderNumber,
       last_reminder_sent_at: now.toISOString(),
     });

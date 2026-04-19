@@ -81,7 +81,10 @@ registry.registerPath({
 
 export async function handleMe(req: AuthenticatedRequest) {
   const userRow = req.userId
-    ? await tdb('users').where({ id: req.userId }).select(USER_COLUMNS).first()
+    ? await tdb('users')
+        .where({ id: req.userId, org_id: req.org!.id })
+        .select(USER_COLUMNS)
+        .first()
     : null;
   return {
     data: {
@@ -101,7 +104,7 @@ export async function handleUpdateMe(req: AuthenticatedRequest) {
   const patch: Record<string, unknown> = {};
   if ('default_rate_cents' in body) patch.default_rate_cents = body.default_rate_cents;
   if (Object.keys(patch).length) {
-    await tdb('users').where({ id: req.userId }).update(patch);
+    await tdb('users').where({ id: req.userId, org_id: req.org!.id }).update(patch);
   }
   return handleMe(req);
 }
