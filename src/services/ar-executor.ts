@@ -21,18 +21,13 @@ import {
   type ClientArOverrides,
   type OrgArSettings,
 } from './ar-settings';
-import {
-  allocateNextNumber,
-  type InvoiceRow,
-  type LineItemRow,
-} from './invoices';
+import { allocateNextNumber, type InvoiceRow } from './invoices';
+import { shouldSkipSend } from './demo-skip';
 import { sendReminder } from './reminder-channels';
 import { getInvoiceEmailQueue } from '../config/queues';
 import crypto from 'node:crypto';
 
 type Tdb = (table: string) => Knex.QueryBuilder;
-
-const EXAMPLE_DOMAIN_RE = /@(?:[^@]+\.)?example(?:\.com|\.org|\.net)?$/i;
 
 type EnqueueSend = (invoiceId: string) => Promise<unknown>;
 type SendReminderFn = (
@@ -60,17 +55,6 @@ function ymdUtc(d: Date): string {
 
 function roundHours(minutes: number): number {
   return Math.round((minutes / 60) * 100) / 100;
-}
-
-function isDemo(seededAt: string | Date | null, email: string | null): {
-  skip: boolean;
-  reason: 'seeded' | 'example_domain' | null;
-} {
-  if (seededAt != null) return { skip: true, reason: 'seeded' };
-  if (email && EXAMPLE_DOMAIN_RE.test(email)) {
-    return { skip: true, reason: 'example_domain' };
-  }
-  return { skip: false, reason: null };
 }
 
 /**
@@ -232,7 +216,6 @@ export async function executeAR(
     await t('invoice_line_items').insert(
       lineSeeds.map((l) => ({ ...l, org_id: orgId, invoice_id: invoice.id }))
     );
-    createdDrafts.push(invoice.id);
 
     await t('audit_log').insert({
       source: 'ar.auto_generate',
@@ -248,7 +231,10 @@ export async function executeAR(
       },
     });
 
-    if (!eff.approvalRequired) {
+    if (eff.approvalRequired) {
+      // Stays in the approval queue.
+      createdDrafts.push(invoice.id);
+    } else {
       const year = now.getUTCFullYear();
       const number = await allocateNextNumber(orgId, year, t);
       const paymentToken = crypto.randomUUID();
@@ -260,7 +246,7 @@ export async function executeAR(
         payment_token: paymentToken,
       });
 
-      const demo = isDemo(null /* fresh invoice, not seeded */, client.email);
+      const demo = shouldSkipSend({ seededAt: null, email: client.email });
       if (demo.skip) {
         await t('audit_log').insert({
           source: 'invoice.send',
@@ -333,7 +319,7 @@ export async function executeAR(
     if (expectedBucket <= count) continue;
 
     const reminderNumber = count + 1;
-    const demo = isDemo(inv.seeded_at, client.email);
+    const demo = shouldSkipSend({ seededAt: inv.seeded_at, email: client.email });
 
     if (demo.skip) {
       await t('audit_log').insert({
@@ -375,22 +361,29 @@ export async function executeAR(
     });
   }
 
-  await t('audit_log').insert({
-    source: 'ar.run',
-    org_id: orgId,
-    event_type: 'ar.run.completed',
-    external_id: runExternalId,
-    status: 'completed',
-    payload: {
-      createdDrafts,
-      finalizedSent,
-      remindersSent,
-      triggeredBy,
-    },
-  });
-
-  // Quiet "unused import" for the LineItemRow type when consumers extend this file.
-  void (null as unknown as LineItemRow);
+  try {
+    await t('audit_log').insert({
+      source: 'ar.run',
+      org_id: orgId,
+      event_type: 'ar.run.completed',
+      external_id: runExternalId,
+      status: 'completed',
+      payload: {
+        createdDrafts,
+        finalizedSent,
+        remindersSent,
+        triggeredBy,
+      },
+    });
+  } catch (err) {
+    // Concurrent scheduler firings: unique partial index on
+    // audit_log(org_id, external_id) WHERE source='ar.run' collapses the
+    // race to a 23505 that we treat as a no-op.
+    if ((err as { code?: string }).code === '23505') {
+      return { createdDrafts: [], finalizedSent: [], remindersSent: [], skipped: true };
+    }
+    throw err;
+  }
 
   return { createdDrafts, finalizedSent, remindersSent };
 }
@@ -412,7 +405,7 @@ export interface PreviewResult {
     invoiceId: string;
     invoiceNumber: string | null;
     clientName: string;
-    daysPastSent: number;
+    daysPastIssue: number;
     reminderNumber: number;
   }>;
 }
@@ -527,7 +520,7 @@ export async function previewAR(
       invoiceId: inv.id,
       invoiceNumber: inv.number,
       clientName: client.name,
-      daysPastSent: daysSince,
+      daysPastIssue: daysSince,
       reminderNumber: count + 1,
     });
   }

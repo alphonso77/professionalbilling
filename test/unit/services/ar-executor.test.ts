@@ -338,9 +338,9 @@ describe('services/ar-executor — executeAR auto-generate + approval branches',
       },
     });
 
-    expect(result.createdDrafts).to.have.length(1);
-    expect(result.finalizedSent).to.deep.equal(result.createdDrafts);
-    expect(enqueued).to.deep.equal(result.createdDrafts);
+    expect(result.createdDrafts, 'auto-sent invoices only appear under finalizedSent').to.have.length(0);
+    expect(result.finalizedSent).to.have.length(1);
+    expect(enqueued).to.deep.equal(result.finalizedSent);
 
     const [inv] = db._tables.invoices;
     expect(inv.status).to.equal('open');

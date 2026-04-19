@@ -266,9 +266,9 @@ export type ArPreviewDraft = {
 
 export type ArPreviewReminder = {
   invoiceId: string;
-  invoiceNumber: string;
+  invoiceNumber: string | null;
   clientName: string;
-  daysPastSent: number;
+  daysPastIssue: number;
   reminderNumber: number;
 };
 

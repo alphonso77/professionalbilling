@@ -16,6 +16,7 @@ interface InvoiceRow {
   number: string | null;
   total_cents: string | number;
   due_date: string | Date | null;
+  issue_date: string | Date | null;
   payment_token: string | null;
   status: string;
 }
@@ -75,7 +76,7 @@ export async function sendInvoiceEmail(
 ): Promise<'sent' | 'skipped_no_email' | 'skipped_not_open'> {
   const invoice = (await database('invoices')
     .where({ id: invoiceId })
-    .select('id', 'org_id', 'client_id', 'number', 'total_cents', 'due_date', 'payment_token', 'status')
+    .select('id', 'org_id', 'client_id', 'number', 'total_cents', 'due_date', 'issue_date', 'payment_token', 'status')
     .first()) as InvoiceRow | undefined;
 
   if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
@@ -109,12 +110,16 @@ export async function sendInvoiceEmail(
     ? `Reminder: Invoice ${invoice.number} from ${orgName}`
     : `Invoice ${invoice.number} from ${orgName}`;
 
+  const reminderDateLine = invoice.due_date
+    ? `Original due date: ${due}`
+    : `Issued: ${formatDueDate(invoice.issue_date)}`;
+
   const text = isReminder
     ? [
         `Hi ${client.name},`,
         '',
         `This is reminder #${reminderNumber} that invoice ${invoice.number} for ${total} is still outstanding.`,
-        `Original due date: ${due}`,
+        reminderDateLine,
         '',
         `Pay online: ${payUrl}`,
         '',

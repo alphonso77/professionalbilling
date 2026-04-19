@@ -85,7 +85,11 @@ export function InvoicesPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="inline-flex rounded-md border border-[var(--color-border)] p-0.5">
+        <div
+          role="tablist"
+          aria-label="Invoice views"
+          className="inline-flex rounded-md border border-[var(--color-border)] p-0.5"
+        >
           <TabButton active={tab === "all"} onClick={() => setTab("all")}>
             All invoices
           </TabButton>
@@ -186,6 +190,8 @@ function TabButton({
   return (
     <button
       type="button"
+      role="tab"
+      aria-selected={active}
       onClick={onClick}
       className={cn(
         "inline-flex items-center rounded px-3 py-1 text-sm transition-colors",

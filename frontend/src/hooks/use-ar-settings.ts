@@ -32,11 +32,11 @@ export function useUpdateArSettings() {
   });
 }
 
-export function useArPreview(enabled: boolean = true) {
+export function useArPreview() {
   const { call, orgId } = useApi();
   return useQuery({
     queryKey: [...PREVIEW_KEY, orgId],
-    enabled: !!orgId && enabled,
+    enabled: !!orgId,
     queryFn: () => call<ArPreview>("GET", "/api/ar-settings/preview"),
   });
 }

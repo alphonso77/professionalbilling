@@ -16,6 +16,7 @@ import {
   voidInvoice,
 } from '../services/invoices';
 import { ensurePaymentIntent } from '../services/ensure-payment-intent';
+import { shouldSkipSend } from '../services/demo-skip';
 import { tdb } from '../config/tenant-context';
 import { getInvoiceEmailQueue } from '../config/queues';
 import { AppError } from '../middleware/error-handler';
@@ -370,6 +371,14 @@ export async function handleDelete(id: string, t = tdb) {
   return { data: await deleteDraft(id, t) };
 }
 
+type EnqueueSend = (invoiceId: string) => Promise<unknown>;
+
+const defaultEnqueueSend: EnqueueSend = (invoiceId) =>
+  getInvoiceEmailQueue().add('send', { invoiceId }, {
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 10_000 },
+  });
+
 export async function handleApproveSend(
   id: string,
   orgId: string,
@@ -418,16 +427,6 @@ export async function handleRejectApproval(id: string, t = tdb) {
   return { data: { deleted: true } };
 }
 
-const EXAMPLE_DOMAIN_RE = /@(?:[^@]+\.)?example(?:\.com|\.org|\.net)?$/i;
-
-type EnqueueSend = (invoiceId: string) => Promise<unknown>;
-
-const defaultEnqueueSend: EnqueueSend = (invoiceId) =>
-  getInvoiceEmailQueue().add('send', { invoiceId }, {
-    attempts: 5,
-    backoff: { type: 'exponential', delay: 10_000 },
-  });
-
 export async function handleSend(
   id: string,
   t = tdb,
@@ -438,20 +437,15 @@ export async function handleSend(
     throw new AppError(409, 'Only open invoices can be sent');
   }
 
-  const isSeeded = invoice.seeded_at != null;
-  const isExampleDomain = client.email != null && EXAMPLE_DOMAIN_RE.test(client.email);
-
-  if (isSeeded || isExampleDomain) {
+  const skip = shouldSkipSend({ seededAt: invoice.seeded_at, email: client.email });
+  if (skip.skip) {
     await t('audit_log').insert({
       source: 'invoice.send',
       org_id: invoice.org_id,
       event_type: 'invoice.email.skipped',
       external_id: invoice.id,
       status: 'skipped',
-      payload: {
-        reason: isSeeded ? 'seeded' : 'example_domain',
-        to: client.email,
-      },
+      payload: { reason: skip.reason, to: client.email },
     });
     return {
       data: {

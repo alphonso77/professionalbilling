@@ -62,7 +62,7 @@ const PreviewSchema = z
         invoiceId: z.string().uuid(),
         invoiceNumber: z.string().nullable(),
         clientName: z.string(),
-        daysPastSent: z.number().int().nonnegative(),
+        daysPastIssue: z.number().int().nonnegative(),
         reminderNumber: z.number().int().positive(),
       })
     ),

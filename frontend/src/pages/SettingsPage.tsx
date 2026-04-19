@@ -188,7 +188,7 @@ const DEFAULT_AR: ArFormValues = {
 function ArAutomationCard() {
   const settingsQ = useArSettings();
   const updateSettings = useUpdateArSettings();
-  const previewQ = useArPreview(!!settingsQ.data?.automationEnabled);
+  const previewQ = useArPreview();
   const runNow = useRunArNow();
   const { toast } = useToast();
 
@@ -392,42 +392,40 @@ function ArAutomationCard() {
           </div>
         </form>
 
-        {enabled ? (
-          <div className="space-y-3 border-t border-[var(--color-border)] pt-5">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5">
-                <h3 className="text-sm font-medium">Preview</h3>
-                <InfoBubble entryKey="ar.preview" />
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => previewQ.refetch()}
-                  disabled={previewQ.isFetching}
-                >
-                  {previewQ.isFetching ? "Refreshing…" : "Refresh"}
-                </Button>
-                <InfoBubble entryKey="ar.run_now" />
-                <RunNowButton
-                  onConfirm={runNowConfirm}
-                  isPending={runNow.isPending}
-                />
-              </div>
+        <div className="space-y-3 border-t border-[var(--color-border)] pt-5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <h3 className="text-sm font-medium">Preview</h3>
+              <InfoBubble entryKey="ar.preview" />
             </div>
-            <p className="text-xs text-[var(--color-muted-foreground)]">
-              Next scheduled run:{" "}
-              <span className="font-medium text-[var(--color-foreground)]">
-                {formatDate(preview?.scheduledRunDate)}
-              </span>
-            </p>
-            <ArPreviewTables
-              isLoading={previewQ.isLoading}
-              preview={preview}
-            />
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => previewQ.refetch()}
+                disabled={previewQ.isFetching}
+              >
+                {previewQ.isFetching ? "Refreshing…" : "Refresh"}
+              </Button>
+              <InfoBubble entryKey="ar.run_now" />
+              <RunNowButton
+                onConfirm={runNowConfirm}
+                isPending={runNow.isPending}
+              />
+            </div>
           </div>
-        ) : null}
+          <p className="text-xs text-[var(--color-muted-foreground)]">
+            Next scheduled run:{" "}
+            <span className="font-medium text-[var(--color-foreground)]">
+              {formatDate(preview?.scheduledRunDate)}
+            </span>
+          </p>
+          <ArPreviewTables
+            isLoading={previewQ.isLoading}
+            preview={preview}
+          />
+        </div>
       </CardContent>
     </Card>
   );
@@ -506,7 +504,7 @@ function ArPreviewTables({
                   <th className="px-3 py-2 text-left font-medium">Invoice</th>
                   <th className="px-3 py-2 text-left font-medium">Client</th>
                   <th className="px-3 py-2 text-right font-medium">
-                    Days past sent
+                    Days past issued
                   </th>
                   <th className="px-3 py-2 text-right font-medium">
                     Reminder #
@@ -516,9 +514,11 @@ function ArPreviewTables({
               <tbody className="divide-y divide-[var(--color-border)]">
                 {preview.wouldRemind.map((r) => (
                   <tr key={r.invoiceId}>
-                    <td className="px-3 py-2 font-medium">{r.invoiceNumber}</td>
+                    <td className="px-3 py-2 font-medium">
+                      {r.invoiceNumber ?? "—"}
+                    </td>
                     <td className="px-3 py-2">{r.clientName}</td>
-                    <td className="px-3 py-2 text-right">{r.daysPastSent}</td>
+                    <td className="px-3 py-2 text-right">{r.daysPastIssue}</td>
                     <td className="px-3 py-2 text-right">{r.reminderNumber}</td>
                   </tr>
                 ))}

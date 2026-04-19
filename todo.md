@@ -56,6 +56,13 @@
     - either: send invoices automatically, or prompt the user to approve/deny send (if configured to be gated)
     - query for all un-paid invoices, and send reminders to configured channels (if configured to send automated invoice reminders)
 
+### Phase 2C - UAT Feedback
+
+* clicking 'pay now' on an invoice just results in the button saying 'processing' and then hanging
+* clicking various invoices (Acme org is one) results in a 'stripe not connected for this org' message
+    - is this an artifact of me pushing and running the code prior to polish itmes, using the `founder@` account?
+
+
 
 ## Pending
 
