@@ -25,7 +25,7 @@ Prod: https://professionalbilling.fratellisoftware.com
 Backend (from repo root):
 - `npm run dev` — tsx watch
 - `npm run build` — tsc + tsc-alias
-- `npm test` — Mocha
+- `npm test` — Mocha (globs `test/unit/**` + `test/integration/**`; integration tests self-skip when `DATABASE_URL` is unreachable, so local/CI both stay green)
 - `npm run typecheck`
 - `npm run migrate` — Knex migrate latest
 - `npm run seed`
