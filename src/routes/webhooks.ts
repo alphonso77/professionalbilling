@@ -65,7 +65,11 @@ export async function handleClerkEvent(
   try {
     switch (eventType) {
       case 'organization.created': {
-        const data = evt.data as { id: string; name: string };
+        const data = evt.data as {
+          id: string;
+          name: string;
+          public_metadata?: Record<string, unknown>;
+        };
         externalId = data.id;
         const existing = await database('organizations')
           .where({ clerk_org_id: data.id })
@@ -84,6 +88,27 @@ export async function handleClerkEvent(
             database
           );
           logger.info(`Clerk organization.created: ${data.id}`, { name: data.name });
+        }
+        // Persist Stripe subscription metadata whenever it's present on the org's
+        // publicMetadata — set by provisionCustomer() for marketing-site signups.
+        // Idempotent: same UPDATE on every replay.
+        const meta = data.public_metadata;
+        if (meta && typeof meta === 'object' && typeof meta.stripeSubscriptionId === 'string') {
+          const trialEndRaw = (meta as { trialEndAt?: number | null }).trialEndAt;
+          const trialEndAt =
+            typeof trialEndRaw === 'number' ? new Date(trialEndRaw).toISOString() : null;
+          await database('organizations')
+            .where({ clerk_org_id: data.id })
+            .update({
+              stripe_customer_id:
+                (meta as { stripeCustomerId?: string }).stripeCustomerId ?? null,
+              stripe_subscription_id: meta.stripeSubscriptionId,
+              trial_end_at: trialEndAt,
+              signup_source: (meta as { source?: string }).source ?? null,
+            });
+          logger.info(`Stripe subscription metadata attached to org ${data.id}`, {
+            stripeSubscriptionId: meta.stripeSubscriptionId,
+          });
         }
         break;
       }

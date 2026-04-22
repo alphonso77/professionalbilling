@@ -154,6 +154,32 @@ Pattern (see `src/routes/public-invoices.ts`):
 - Return `503` for known server-side misconfiguration (missing env/platform row) — not `500`, which implies an unexpected crash.
 - Apply a per-IP rate limit (`express-rate-limit`) on every public route.
 
+## Offer-code signup gate
+
+Free signup at `/sign-up` is gated behind a super-admin-issued 6-digit offer code. Codes live in `corporate.offer_codes` (cross-tenant, no RLS). Each code has `max_redemptions` (nullable = unlimited), `redemption_count`, `expires_at` (nullable), and `active`. Redemptions are logged in `corporate.offer_code_redemptions` with the Clerk `invitation_id`.
+
+Flow: user visits `/sign-up` → enters code + email → `POST /api/public/offer-codes/redeem` → service takes a `SELECT … FOR UPDATE` on the code row, validates, calls `clerkClient.invitations.createInvitation({ emailAddress, redirectUrl: '${FRONTEND_URL}/sign-up/accept' })`, bumps `redemption_count`, inserts a redemption log row — all in one transaction. Clerk emails a signup link; the user clicks → `/sign-up/accept?__clerk_ticket=…` → Clerk's `<SignUp />` auto-binds to the ticket → completes normally → existing `organization.created` + `organizationMembership.created` webhooks populate the DB.
+
+**Counter timing:** `redemption_count` bumps when the invitation is *sent*, not when the invited user completes signup. This caps abuse of the public redeem endpoint — an attacker with one unlimited code can't fan out infinite invitations without burning redemption slots.
+
+**Failure-mode handling:** failure messages are intentionally generic (`INVALID_CODE` 400) for all rejection reasons (unknown / expired / exhausted / deactivated) to prevent code-probing. The public route is per-IP rate-limited (10 req/min on top of the global limiter).
+
+**Paid signups bypass the gate** — `/api/webhooks/fratelli-signup` mints users via `clerkClient.users.createUser` directly (not via invitations), so marketing-site customers never see `/sign-up`.
+
+**Clerk dashboard — REQUIRED:** set signup **Restrictions** to "Restricted" (i.e., invitation or allowlist required). Without this, a user could bypass the gate by visiting `/sign-up/accept` directly in an unauth'd browser and signing up without a ticket. With "Restricted" on, Clerk itself rejects signups that lack a valid ticket.
+
+Admin UI: super-admin-only "Offer Codes" tab on `/admin` (`AdminPage.tsx`). Generate a code (random 6-digit with 10-attempt collision retry) with optional `max_redemptions` + `expires_at`. Deactivate via `POST /api/admin/offer-codes/:id/deactivate`. There is no edit flow — mint a new code instead.
+
+## Marketing-site signup hand-off
+
+The marketing site (`alphonso77/fratellisoftware-com`, `server/subscribe.js`) fires `POST /api/webhooks/fratelli-signup` after a paid checkout. Body is `{ event: 'signup.completed', email, stripeCustomerId, stripeSubscriptionId, trialEndAt, occurredAt }`. HMAC-SHA256 signed over the raw body with `PB_WEBHOOK_SECRET`; header `X-Fratelli-Signature: sha256=<hex>`. Route mounted with `express.raw(...)` before `express.json()` (same pattern as Stripe).
+
+Flow: verify signature (`crypto.timingSafeEqual`) → dedup on `audit_log { source: 'fratelli.signup', external_id: stripeSubscriptionId, status: 'processed' }` → `provisionCustomer()` (`src/services/clerk-provisioning.ts`) calls `clerkClient.users.createUser` + `organizations.createOrganization`, stashing `{ stripeCustomerId, stripeSubscriptionId, trialEndAt, source: 'fratellisoftware-com' }` on the org's `publicMetadata` → enqueue `welcome-email` (Resend, 6-digit-OTP activation link to `${FRONTEND_URL}/activate?email=…`) → 200. Clerk's async `organization.created` webhook fires a second or two later; the existing `handleClerkEvent` handler reads `publicMetadata` and writes the Stripe columns on `organizations` (`stripe_customer_id`, `stripe_subscription_id`, `trial_end_at`, `signup_source`). Replay safety: `organizations.stripe_subscription_id` is UNIQUE, and `provisionCustomer` short-circuits when the email already exists (attaching Stripe data to the user's first existing org).
+
+User lands on `/activate`, enters email (prefilled via `?email=`), Clerk emails a 6-digit code via `email_code` sign-in strategy, user enters code, signed in. No password — users created with `skipPasswordRequirement: true`. Frontend page at `frontend/src/pages/ActivatePage.tsx` using `useSignIn()` from `@clerk/clerk-react`. Requires the Clerk dashboard's **Email verification code** first-factor strategy to be enabled.
+
+**Ops:** on the marketing-site Railway service, `PB_WEBHOOK_URL` must point at `${api.professionalbilling.fratellisoftware.com}/api/webhooks/fratelli-signup` (note the `/api` prefix — the marketing repo's default lacks it). `PB_WEBHOOK_SECRET` must match between the two services.
+
 ## Stripe Connect webhooks
 
 Platform-level pattern (one endpoint for all connected accounts):
@@ -178,7 +204,7 @@ Platform-level pattern (one endpoint for all connected accounts):
 
 ## Required env vars (production)
 
-**api:** `DATABASE_URL`, `DATABASE_APP_URL`, `PROFESSIONALBILLING_APP_PASSWORD`, `REDIS_URL`, `API_BASE_URL`, `FRONTEND_URL`, `CORS_ORIGIN`, `NODE_ENV=production`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `CLERK_WEBHOOK_SIGNING_SECRET`, `ENCRYPTION_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY` (read at request time by finalize/detail/public invoice endpoints; missing = 503 on public, omitted on authenticated detail), `STRIPE_CLIENT_ID`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_REDIRECT_URI`, `RESEND_API_KEY` (required for invoice send + AR reminders), `RESEND_FROM_ADDRESS` (defaults to `no-reply@professionalbilling.fratellisoftware.com`)
+**api:** `DATABASE_URL`, `DATABASE_APP_URL`, `PROFESSIONALBILLING_APP_PASSWORD`, `REDIS_URL`, `API_BASE_URL`, `FRONTEND_URL`, `CORS_ORIGIN`, `NODE_ENV=production`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `CLERK_WEBHOOK_SIGNING_SECRET`, `ENCRYPTION_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY` (read at request time by finalize/detail/public invoice endpoints; missing = 503 on public, omitted on authenticated detail), `STRIPE_CLIENT_ID`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_REDIRECT_URI`, `RESEND_API_KEY` (required for invoice send + AR reminders + marketing-signup welcome email), `RESEND_FROM_ADDRESS` (defaults to `no-reply@professionalbilling.fratellisoftware.com`), `PB_WEBHOOK_SECRET` (shared with fratellisoftware-com for the signup hand-off webhook)
 
 **`DATABASE_APP_URL` must use the restricted `professionalbilling_app` role**, not the Postgres superuser. The role is created idempotently by `datastore/migrations/*_create_app_role.js` from `PROFESSIONALBILLING_APP_PASSWORD`. URL format: `postgresql://professionalbilling_app:${{PROFESSIONALBILLING_APP_PASSWORD}}@<host>:<port>/<db>`. If superuser creds slip in, RLS is bypassed silently — Postgres exempts superusers from RLS regardless of `FORCE ROW LEVEL SECURITY`. Cross-org reads will succeed and the only symptom is "things work too well." The api boots with two startup checks (`src/services/startup-checks.ts`) that make this failure mode loud: `syncAppRolePassword` runs `ALTER ROLE professionalbilling_app WITH PASSWORD $env` on every boot (rotations no longer require a re-migration), and `assertDbAppNotSuperuser` refuses to bind a port if the dbApp pool resolves to a superuser or any role other than `professionalbilling_app`.
 
@@ -188,7 +214,7 @@ Platform-level pattern (one endpoint for all connected accounts):
 
 **Defense-in-depth org scoping:** every handler query under `src/routes/` and `src/services/` that looks up a row by id folds `org_id` into the existing `where` object literal — `tdb('invoices').where({ id, org_id: orgId }).first()`, not `.where({ id }).first()`. This is the IntegraSentry idiom; when RLS is correctly configured the redundant filter is invisible, but when it's bypassed (as in the Phase 2C UAT incident) the explicit filter is what prevents cross-org reads. Workers (`src/workers/*`) use raw `db` and intentionally skip this — cross-org iteration is part of their contract.
 
-**workers:** `DATABASE_URL`, `REDIS_URL`, `NODE_ENV=production`, `ENCRYPTION_KEY`, `STRIPE_SECRET_KEY`, `FRONTEND_URL` (invoice-email builds payment URL), `RESEND_API_KEY`, `RESEND_FROM_ADDRESS`. The `ar-scheduler` worker also runs here; no extra vars beyond the above.
+**workers:** `DATABASE_URL`, `REDIS_URL`, `NODE_ENV=production`, `ENCRYPTION_KEY`, `STRIPE_SECRET_KEY`, `FRONTEND_URL` (invoice-email builds payment URL; welcome-email builds `/activate` URL), `RESEND_API_KEY`, `RESEND_FROM_ADDRESS`. The `ar-scheduler` + `welcome-email` workers also run here; no extra vars beyond the above.
 
 **frontend:** `VITE_CLERK_PUBLISHABLE_KEY`, `VITE_API_BASE_URL` (both baked at build time — rebuild to change)
 

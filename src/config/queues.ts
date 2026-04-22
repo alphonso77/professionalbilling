@@ -48,3 +48,22 @@ export function getInvoiceEmailQueue(): Queue<InvoiceEmailJobData> {
   }
   return _invoiceEmailQueue;
 }
+
+export const WELCOME_EMAIL_QUEUE = 'welcome-email';
+
+export interface WelcomeEmailJobData {
+  email: string;
+  trialEndAt: number | null;
+  stripeSubscriptionId: string;
+}
+
+let _welcomeEmailQueue: Queue<WelcomeEmailJobData> | null = null;
+
+export function getWelcomeEmailQueue(): Queue<WelcomeEmailJobData> {
+  if (!_welcomeEmailQueue) {
+    _welcomeEmailQueue = new Queue<WelcomeEmailJobData>(WELCOME_EMAIL_QUEUE, {
+      connection: redis,
+    });
+  }
+  return _welcomeEmailQueue;
+}

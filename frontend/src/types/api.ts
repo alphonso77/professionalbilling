@@ -34,6 +34,29 @@ export type UpdateAdminUserInput = {
   easter_egg_enabled?: boolean;
 };
 
+export type OfferCodeRow = {
+  id: string;
+  code: string;
+  max_redemptions: number | null;
+  redemption_count: number;
+  expires_at: string | null;
+  active: boolean;
+  created_by_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+  deactivated_at: string | null;
+};
+
+export type CreateOfferCodeInput = {
+  max_redemptions?: number | null;
+  expires_at?: string | null;
+};
+
+export type RedeemOfferCodeInput = {
+  code: string;
+  email: string;
+};
+
 export type Me = {
   user: MeUser | null;
   org: {

@@ -84,6 +84,11 @@ function makeMockDb() {
         tables[tableName] = tables[tableName].filter((r) => !matchesRow(r, whereClause));
         return before - tables[tableName].length;
       },
+      async update(patch: Row) {
+        const matched = tables[tableName].filter((r) => matchesRow(r, whereClause));
+        for (const r of matched) Object.assign(r, patch);
+        return matched.length;
+      },
     };
     return api;
   }
@@ -116,6 +121,44 @@ describe('routes/webhooks — handleClerkEvent', () => {
       event_type: 'organization.created',
       status: 'processed',
     });
+  });
+
+  it('organization.created persists Stripe subscription metadata from public_metadata', async () => {
+    const db = makeMockDb();
+    await handleClerkEvent(
+      {
+        type: 'organization.created',
+        data: {
+          id: 'org_1',
+          name: 'Acme',
+          public_metadata: {
+            stripeCustomerId: 'cus_xyz',
+            stripeSubscriptionId: 'sub_xyz',
+            trialEndAt: 1_700_000_000_000,
+            source: 'fratellisoftware-com',
+          },
+        },
+      },
+      db
+    );
+    const org = db._tables.organizations[0];
+    expect(org).to.include({
+      clerk_org_id: 'org_1',
+      stripe_customer_id: 'cus_xyz',
+      stripe_subscription_id: 'sub_xyz',
+      signup_source: 'fratellisoftware-com',
+    });
+    expect(org.trial_end_at).to.equal(new Date(1_700_000_000_000).toISOString());
+  });
+
+  it('organization.created does not touch Stripe columns when public_metadata is absent', async () => {
+    const db = makeMockDb();
+    await handleClerkEvent(
+      { type: 'organization.created', data: { id: 'org_2', name: 'Beta' } },
+      db
+    );
+    const org = db._tables.organizations[0];
+    expect(org).to.not.have.property('stripe_subscription_id');
   });
 
   it('organization.created ignores if org already exists', async () => {

@@ -18,6 +18,11 @@ import {
   useAdminFeedback,
   useUpdateAdminFeedback,
 } from "@/hooks/use-feedback";
+import {
+  useAdminOfferCodes,
+  useCreateOfferCode,
+  useDeactivateOfferCode,
+} from "@/hooks/use-offer-codes";
 import { useMe } from "@/hooks/use-me";
 import { useToast } from "@/hooks/use-toast";
 import { ApiError } from "@/lib/api";
@@ -27,6 +32,7 @@ import type {
   FeedbackRow,
   FeedbackStatus,
   FeedbackType,
+  OfferCodeRow,
   UpdateAdminUserInput,
 } from "@/types/api";
 
@@ -417,9 +423,229 @@ function FeedbackTab({ enabled }: { enabled: boolean }) {
   );
 }
 
+// ------- Offer Codes tab (super-admin only) -------
+
+function formatRedemptions(row: OfferCodeRow): string {
+  if (row.max_redemptions === null) {
+    return `${row.redemption_count} / ∞`;
+  }
+  return `${row.redemption_count} / ${row.max_redemptions}`;
+}
+
+function codeStatus(row: OfferCodeRow): "active" | "inactive" | "exhausted" | "expired" {
+  if (!row.active) return "inactive";
+  if (
+    row.max_redemptions !== null &&
+    row.redemption_count >= row.max_redemptions
+  ) {
+    return "exhausted";
+  }
+  if (row.expires_at && new Date(row.expires_at).getTime() <= Date.now()) {
+    return "expired";
+  }
+  return "active";
+}
+
+function OfferCodesTab({ enabled }: { enabled: boolean }) {
+  const listQ = useAdminOfferCodes(enabled);
+  const create = useCreateOfferCode();
+  const deactivate = useDeactivateOfferCode();
+  const { toast } = useToast();
+  const [maxInput, setMaxInput] = React.useState<string>("");
+  const [expiresInput, setExpiresInput] = React.useState<string>("");
+
+  if (!enabled) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-sm text-[var(--color-muted-foreground)]">
+          Offer codes are restricted to Fratelli super-admins.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const onGenerate = async () => {
+    const parsedMax =
+      maxInput.trim() === "" ? null : Number.parseInt(maxInput, 10);
+    if (parsedMax !== null && (!Number.isFinite(parsedMax) || parsedMax <= 0)) {
+      toast({
+        variant: "destructive",
+        title: "Invalid max redemptions",
+        description: "Leave blank for unlimited, or enter a positive integer.",
+      });
+      return;
+    }
+    const expires_at =
+      expiresInput.trim() === ""
+        ? null
+        : new Date(expiresInput).toISOString();
+    try {
+      const row = await create.mutateAsync({
+        max_redemptions: parsedMax,
+        expires_at,
+      });
+      toast({
+        title: "Code generated",
+        description: `${row.code} — share with the customer.`,
+      });
+      setMaxInput("");
+      setExpiresInput("");
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Generate failed",
+        description: err instanceof ApiError ? err.message : "Unexpected error",
+      });
+    }
+  };
+
+  const onDeactivate = async (row: OfferCodeRow) => {
+    if (!window.confirm(`Deactivate code ${row.code}?`)) return;
+    try {
+      await deactivate.mutateAsync(row.id);
+      toast({ title: "Code deactivated", description: row.code });
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Deactivate failed",
+        description: err instanceof ApiError ? err.message : "Unexpected error",
+      });
+    }
+  };
+
+  const rows = listQ.data ?? [];
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Generate a code</CardTitle>
+          <CardDescription>
+            Random 6-digit code. Share with prospects who should get free
+            signup access.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted-foreground)]">
+                Max redemptions
+              </label>
+              <input
+                type="number"
+                min={1}
+                placeholder="Unlimited"
+                value={maxInput}
+                onChange={(e) => setMaxInput(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-[var(--color-input)] bg-[var(--color-background)] px-3 py-1 text-sm text-[var(--color-foreground)] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted-foreground)]">
+                Expires at (optional)
+              </label>
+              <input
+                type="datetime-local"
+                value={expiresInput}
+                onChange={(e) => setExpiresInput(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-[var(--color-input)] bg-[var(--color-background)] px-3 py-1 text-sm text-[var(--color-foreground)] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
+              />
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            disabled={create.isPending}
+            onClick={onGenerate}
+          >
+            {create.isPending ? "Generating…" : "Generate code"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {listQ.isLoading ? (
+        <p className="text-sm text-[var(--color-muted-foreground)]">Loading…</p>
+      ) : listQ.error ? (
+        <Card>
+          <CardContent className="p-6 text-sm text-[var(--color-destructive)]">
+            {listQ.error instanceof ApiError
+              ? listQ.error.message
+              : "Failed to load offer codes"}
+          </CardContent>
+        </Card>
+      ) : rows.length === 0 ? (
+        <Card>
+          <CardContent className="p-6 text-sm text-[var(--color-muted-foreground)]">
+            No codes yet.
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-xs uppercase tracking-wide text-[var(--color-muted-foreground)]">
+                  <tr className="border-b border-[var(--color-border)]">
+                    <th className="px-4 py-2 text-left">Code</th>
+                    <th className="px-4 py-2 text-left">Status</th>
+                    <th className="px-4 py-2 text-left">Redemptions</th>
+                    <th className="px-4 py-2 text-left">Expires</th>
+                    <th className="px-4 py-2 text-left">Created</th>
+                    <th className="px-4 py-2 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => {
+                    const status = codeStatus(row);
+                    return (
+                      <tr
+                        key={row.id}
+                        className="border-b border-[var(--color-border)] last:border-b-0"
+                      >
+                        <td className="px-4 py-2 font-mono tracking-wider">
+                          {row.code}
+                        </td>
+                        <td className="px-4 py-2 capitalize">{status}</td>
+                        <td className="px-4 py-2">{formatRedemptions(row)}</td>
+                        <td className="px-4 py-2">
+                          {row.expires_at ? formatDateTime(row.expires_at) : "—"}
+                        </td>
+                        <td className="px-4 py-2">
+                          {formatDateTime(row.created_at)}
+                        </td>
+                        <td className="px-4 py-2 text-right">
+                          {row.active ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={deactivate.isPending}
+                              onClick={() => onDeactivate(row)}
+                            >
+                              Deactivate
+                            </Button>
+                          ) : (
+                            <span className="text-[var(--color-muted-foreground)]">
+                              —
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 // ------- Tabbed page -------
 
-type TabKey = "users" | "all-users" | "feedback";
+type TabKey = "users" | "all-users" | "feedback" | "offer-codes";
 
 export function AdminPage() {
   const meQ = useMe();
@@ -427,7 +653,10 @@ export function AdminPage() {
   const [tab, setTab] = React.useState<TabKey>("users");
 
   React.useEffect(() => {
-    if (!isSuperAdmin && (tab === "all-users" || tab === "feedback")) {
+    if (
+      !isSuperAdmin &&
+      (tab === "all-users" || tab === "feedback" || tab === "offer-codes")
+    ) {
       setTab("users");
     }
   }, [isSuperAdmin, tab]);
@@ -466,6 +695,12 @@ export function AdminPage() {
             >
               Feedback
             </TabButton>
+            <TabButton
+              active={tab === "offer-codes"}
+              onClick={() => setTab("offer-codes")}
+            >
+              Offer Codes
+            </TabButton>
           </>
         ) : null}
       </div>
@@ -474,8 +709,10 @@ export function AdminPage() {
         <UsersTab />
       ) : tab === "all-users" ? (
         <AllUsersTab enabled={isSuperAdmin} />
-      ) : (
+      ) : tab === "feedback" ? (
         <FeedbackTab enabled={isSuperAdmin} />
+      ) : (
+        <OfferCodesTab enabled={isSuperAdmin} />
       )}
     </div>
   );

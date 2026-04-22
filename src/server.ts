@@ -17,6 +17,7 @@ import { runStartupChecks } from './services/startup-checks';
 import healthRoutes from './routes/health';
 import webhookRoutes from './routes/webhooks';
 import stripeWebhookRouter from './routes/stripe-webhook';
+import fratelliSignupRouter from './routes/fratelli-signup';
 import oauthRoutes from './routes/oauth';
 import docsRoutes from './routes/docs';
 import meRoutes from './routes/me';
@@ -25,6 +26,7 @@ import timeEntriesRoutes from './routes/time-entries';
 import platformsRoutes from './routes/platforms';
 import invoicesRoutes from './routes/invoices';
 import publicInvoicesRoutes from './routes/public-invoices';
+import publicOfferCodesRoutes from './routes/public-offer-codes';
 import adminRoutes from './routes/admin';
 import seedRoutes from './routes/seed';
 import feedbackRoutes from './routes/feedback';
@@ -62,6 +64,13 @@ app.use(
   '/api/webhooks/stripe',
   express.raw({ type: 'application/json', limit: '1mb' }),
   stripeWebhookRouter
+);
+
+// fratellisoftware-com signup hand-off — HMAC-verified over the raw body.
+app.use(
+  '/api/webhooks/fratelli-signup',
+  express.raw({ type: 'application/json', limit: '64kb' }),
+  fratelliSignupRouter
 );
 
 app.use(express.json({ limit: '1mb' }));
@@ -106,6 +115,7 @@ app.use('/api/oauth', oauthRoutes);
 // ---- Public payment route (no Clerk auth; token-gated). Must be mounted
 // BEFORE the authenticated routes so `/api/public/...` bypasses requireOrg. ----
 app.use('/api/public', publicInvoicesRoutes);
+app.use('/api/public/offer-codes', publicOfferCodesRoutes);
 
 // ---- Tenant-scoped routes ----
 app.use('/api/me', requireOrg(), meRoutes);

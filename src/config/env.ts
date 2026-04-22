@@ -33,6 +33,10 @@ const envSchema = z.object({
     .string()
     .default('no-reply@professionalbilling.fratellisoftware.com'),
 
+  // HMAC secret shared with the fratellisoftware-com marketing site for the
+  // `signup.completed` hand-off webhook (`POST /api/webhooks/fratelli-signup`).
+  PB_WEBHOOK_SECRET: z.string().optional(),
+
   ENCRYPTION_KEY: z
     .string()
     .length(64, 'Must be 32 bytes as hex (64 chars). Generate: openssl rand -hex 32')
@@ -57,6 +61,7 @@ function validateEnv(): Env {
     'CLERK_PUBLISHABLE_KEY',
     'CLERK_WEBHOOK_SIGNING_SECRET',
     'ENCRYPTION_KEY',
+    'PB_WEBHOOK_SECRET',
   ];
   if (data.NODE_ENV === 'production') {
     const missing = requiredInProd.filter((k) => !data[k]);

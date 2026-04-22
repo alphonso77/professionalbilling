@@ -7,6 +7,11 @@ import { AppError } from '../middleware/error-handler';
 import { requireAdmin } from '../middleware/require-admin';
 import { requireSuperAdmin } from '../middleware/require-super-admin';
 import type { AuthenticatedRequest } from '../middleware/auth';
+import {
+  createOfferCode,
+  deactivateOfferCode,
+  type OfferCodeRow,
+} from '../services/offer-codes';
 
 const router = Router();
 
@@ -68,6 +73,31 @@ const AllUsersRowSchema = z
   .openapi('AdminAllUsersRow');
 
 const IdParam = z.object({ id: z.string().uuid() });
+
+const OfferCodeSchema = z
+  .object({
+    id: z.string().uuid(),
+    code: z.string(),
+    max_redemptions: z.number().int().positive().nullable(),
+    redemption_count: z.number().int().nonnegative(),
+    expires_at: z.string().nullable(),
+    active: z.boolean(),
+    created_by_user_id: z.string().uuid().nullable(),
+    created_at: z.string(),
+    updated_at: z.string(),
+    deactivated_at: z.string().nullable(),
+  })
+  .openapi('OfferCodeRow');
+
+const CreateOfferCodeBody = z
+  .object({
+    max_redemptions: z.number().int().positive().nullable().optional(),
+    expires_at: z.string().datetime().nullable().optional(),
+  })
+  .openapi('CreateOfferCodeBody');
+
+const OfferCodeListResponse = z.object({ data: z.array(OfferCodeSchema) });
+const OfferCodeOneResponse = z.object({ data: OfferCodeSchema });
 
 const ListResponse = z.object({ data: z.array(AdminUserSchema) });
 const OneResponse = z.object({ data: AdminUserSchema });
@@ -180,6 +210,57 @@ registry.registerPath({
   },
 });
 
+registry.registerPath({
+  method: 'get',
+  path: '/api/admin/offer-codes',
+  tags: ['admin'],
+  summary: 'List offer codes (super-admin only)',
+  security: [{ bearerAuth: [] }, { orgIdHeader: [] }],
+  responses: {
+    200: {
+      description: 'Offer codes',
+      content: { 'application/json': { schema: OfferCodeListResponse } },
+    },
+    403: { description: 'Not a super-admin' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/admin/offer-codes',
+  tags: ['admin'],
+  summary: 'Generate a new 6-digit offer code (super-admin only)',
+  security: [{ bearerAuth: [] }, { orgIdHeader: [] }],
+  request: {
+    body: { content: { 'application/json': { schema: CreateOfferCodeBody } } },
+  },
+  responses: {
+    201: {
+      description: 'Created',
+      content: { 'application/json': { schema: OfferCodeOneResponse } },
+    },
+    400: { description: 'Validation error' },
+    403: { description: 'Not a super-admin' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/admin/offer-codes/{id}/deactivate',
+  tags: ['admin'],
+  summary: 'Deactivate an offer code (super-admin only)',
+  security: [{ bearerAuth: [] }, { orgIdHeader: [] }],
+  request: { params: IdParam },
+  responses: {
+    200: {
+      description: 'Deactivated',
+      content: { 'application/json': { schema: OfferCodeOneResponse } },
+    },
+    403: { description: 'Not a super-admin' },
+    404: { description: 'Not found' },
+  },
+});
+
 export async function handleList(req: AuthenticatedRequest) {
   const rows = await tdb('users')
     .where({ org_id: req.org!.id })
@@ -263,6 +344,30 @@ export async function handleFeedbackUpdate(req: AuthenticatedRequest) {
   return { data: rows[0] };
 }
 
+export async function handleOfferCodesList(_req: AuthenticatedRequest) {
+  const rows = (await db('corporate.offer_codes')
+    .select('*')
+    .orderBy('created_at', 'desc')) as OfferCodeRow[];
+  return { data: rows };
+}
+
+export async function handleOfferCodeCreate(req: AuthenticatedRequest) {
+  const body = CreateOfferCodeBody.parse(req.body ?? {});
+  const row = await createOfferCode({
+    max_redemptions: body.max_redemptions ?? null,
+    expires_at: body.expires_at ?? null,
+    created_by_user_id: req.userId ?? null,
+  });
+  return { data: row };
+}
+
+export async function handleOfferCodeDeactivate(req: AuthenticatedRequest) {
+  const { id } = IdParam.parse(req.params);
+  const row = await deactivateOfferCode(id);
+  if (!row) throw new AppError(404, 'Offer code not found');
+  return { data: row };
+}
+
 export async function handleAllUsersList(_req: AuthenticatedRequest) {
   const rows = await db('users')
     .leftJoin('organizations', 'organizations.id', 'users.org_id')
@@ -313,6 +418,28 @@ router.patch(
   '/feedback/:id',
   requireSuperAdmin(async (req, res) => {
     res.json(await handleFeedbackUpdate(req));
+  })
+);
+
+router.get(
+  '/offer-codes',
+  requireSuperAdmin(async (req, res) => {
+    res.json(await handleOfferCodesList(req));
+  })
+);
+
+router.post(
+  '/offer-codes',
+  requireSuperAdmin(async (req, res) => {
+    const out = await handleOfferCodeCreate(req);
+    res.status(201).json(out);
+  })
+);
+
+router.post(
+  '/offer-codes/:id/deactivate',
+  requireSuperAdmin(async (req, res) => {
+    res.json(await handleOfferCodeDeactivate(req));
   })
 );
 
