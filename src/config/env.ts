@@ -56,13 +56,23 @@ function validateEnv(): Env {
   }
   const data = result.data;
 
-  const requiredInProd: Array<keyof Env> = [
+  // Workers don't touch Clerk or the fratellisoftware-com signup hand-off,
+  // so requiring those secrets on the workers service would crash-loop it
+  // on boot for no reason. Detect via argv[1] — works under both `node` (prod)
+  // and `tsx` (dev).
+  const entry = process.argv[1] ?? '';
+  const isWorker = entry.includes('/workers/');
+
+  const requiredShared: Array<keyof Env> = ['ENCRYPTION_KEY'];
+  const requiredApiOnly: Array<keyof Env> = [
     'CLERK_SECRET_KEY',
     'CLERK_PUBLISHABLE_KEY',
     'CLERK_WEBHOOK_SIGNING_SECRET',
-    'ENCRYPTION_KEY',
     'PB_WEBHOOK_SECRET',
   ];
+  const requiredInProd: Array<keyof Env> = isWorker
+    ? requiredShared
+    : [...requiredShared, ...requiredApiOnly];
   if (data.NODE_ENV === 'production') {
     const missing = requiredInProd.filter((k) => !data[k]);
     if (missing.length) {
