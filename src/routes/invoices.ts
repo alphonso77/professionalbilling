@@ -68,7 +68,15 @@ const InvoiceWithItemsSchema = InvoiceSchema.extend({
   stripePublishableKey: z.string().optional(),
   connectedAccountId: z.string().optional(),
   paymentUrl: z.string().optional(),
-  paymentUnavailableReason: z.literal('seed_requires_test_mode').optional(),
+  paymentUnavailableReason: z
+    .enum([
+      'seed_requires_test_mode',
+      'stripe_capability_pending',
+      'stripe_onboarding_incomplete',
+      'stripe_account_restricted',
+    ])
+    .optional(),
+  paymentUnavailableMessage: z.string().optional(),
 }).openapi('InvoiceWithItems');
 
 const ListQuery = z.object({
@@ -247,6 +255,17 @@ registry.registerPath({
   },
 });
 
+export type PaymentUnavailableReason =
+  | 'seed_requires_test_mode'
+  | 'stripe_capability_pending'
+  | 'stripe_onboarding_incomplete'
+  | 'stripe_account_restricted';
+
+export interface PaymentUnavailable {
+  reason: PaymentUnavailableReason;
+  message: string;
+}
+
 /** Build the detail payload, stripping/augmenting credentials per status. */
 function buildDetailPayload(
   invoice: ReturnType<typeof serializeInvoice>,
@@ -254,7 +273,7 @@ function buildDetailPayload(
   client: { id: string; name: string; email: string | null },
   connectedAccountId: string | null,
   paymentToken: string | null = null,
-  paymentUnavailableReason: 'seed_requires_test_mode' | null = null
+  paymentUnavailable: PaymentUnavailable | null = null
 ) {
   const payload: Record<string, unknown> = {
     ...invoice,
@@ -272,14 +291,22 @@ function buildDetailPayload(
     if (paymentToken && env.FRONTEND_URL) {
       payload.paymentUrl = `${env.FRONTEND_URL}/pay/${invoice.id}?token=${paymentToken}`;
     }
-    if (paymentUnavailableReason) {
-      payload.paymentUnavailableReason = paymentUnavailableReason;
+    if (paymentUnavailable) {
+      payload.paymentUnavailableReason = paymentUnavailable.reason;
+      payload.paymentUnavailableMessage = paymentUnavailable.message;
       payload.stripeClientSecret = null;
     }
   }
 
   return payload;
 }
+
+const APP_ERROR_CODE_TO_REASON: Record<string, PaymentUnavailableReason> = {
+  SEED_REQUIRES_TEST_MODE: 'seed_requires_test_mode',
+  STRIPE_CAPABILITY_PENDING: 'stripe_capability_pending',
+  STRIPE_ONBOARDING_INCOMPLETE: 'stripe_onboarding_incomplete',
+  STRIPE_ACCOUNT_RESTRICTED: 'stripe_account_restricted',
+};
 
 export async function handleList(
   query: z.infer<typeof ListQuery>,
@@ -292,15 +319,17 @@ export async function handleList(
 export async function handleGet(id: string, orgId: string, t = tdb) {
   const { invoice, items, client } = await getInvoiceWithItems(id, orgId, t);
 
-  let paymentUnavailableReason: 'seed_requires_test_mode' | null = null;
+  let paymentUnavailable: PaymentUnavailable | null = null;
   if (invoice.status === 'open' && !invoice.stripe_payment_intent_id) {
     try {
       const ensured = await ensurePaymentIntent(id, t, undefined, orgId);
       invoice.stripe_payment_intent_id = ensured.paymentIntentId;
       invoice.stripe_client_secret = ensured.clientSecret;
     } catch (err) {
-      if (err instanceof AppError && err.code === 'SEED_REQUIRES_TEST_MODE') {
-        paymentUnavailableReason = 'seed_requires_test_mode';
+      const reason =
+        err instanceof AppError && err.code && APP_ERROR_CODE_TO_REASON[err.code];
+      if (reason) {
+        paymentUnavailable = { reason, message: (err as AppError).message };
       } else {
         throw err;
       }
@@ -322,7 +351,7 @@ export async function handleGet(id: string, orgId: string, t = tdb) {
       client,
       connectedAccountId,
       invoice.payment_token,
-      paymentUnavailableReason
+      paymentUnavailable
     ),
   };
 }

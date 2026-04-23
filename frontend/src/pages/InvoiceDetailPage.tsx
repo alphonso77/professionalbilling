@@ -302,10 +302,49 @@ export function InvoiceDetailPage() {
         />
       </div>
 
-      {inv.paymentUnavailableReason === "seed_requires_test_mode" ? (
+      {inv.paymentUnavailableReason ? (
         <Card>
-          <CardContent className="py-3 text-sm text-[var(--color-muted-foreground)]">
-            Seeded invoice — payment is disabled because Stripe is in live mode.
+          <CardContent className="space-y-2 py-3 text-sm">
+            <div className="font-medium">
+              {inv.paymentUnavailableReason === "seed_requires_test_mode"
+                ? "Payment disabled"
+                : inv.paymentUnavailableReason === "stripe_capability_pending"
+                  ? "Payment setup is finalizing"
+                  : inv.paymentUnavailableReason === "stripe_onboarding_incomplete"
+                    ? "Finish your Stripe setup"
+                    : "Stripe account restricted"}
+            </div>
+            <div className="text-[var(--color-muted-foreground)]">
+              {inv.paymentUnavailableMessage ??
+                (inv.paymentUnavailableReason === "seed_requires_test_mode"
+                  ? "Seeded invoice — payment is disabled because Stripe is in live mode."
+                  : "Payment is temporarily unavailable.")}
+            </div>
+            {inv.paymentUnavailableReason === "stripe_capability_pending" ? (
+              <div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => qc.invalidateQueries({ queryKey: ["invoice", id] })}
+                >
+                  Retry
+                </Button>
+              </div>
+            ) : null}
+            {inv.paymentUnavailableReason === "stripe_onboarding_incomplete" ||
+            inv.paymentUnavailableReason === "stripe_account_restricted" ? (
+              <div>
+                <a
+                  href="https://dashboard.stripe.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Button variant="outline" size="sm">
+                    <ExternalLink className="h-4 w-4" /> Open Stripe dashboard
+                  </Button>
+                </a>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}

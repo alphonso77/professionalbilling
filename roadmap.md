@@ -87,6 +87,8 @@
 
 ## In Progress
 
+* fix refund gap, we aren't processing the inbound refund hooks from stripe
+
 ## Pending
 
 ### Phase 2B — Complete DB reset (admin feature)

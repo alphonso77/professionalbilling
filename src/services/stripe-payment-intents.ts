@@ -80,3 +80,60 @@ export async function cancelInvoicePaymentIntent(
 ): Promise<void> {
   await stripe.paymentIntents.cancel(paymentIntentId, {}, { stripeAccount: connectedAccountId });
 }
+
+export type AccountReadinessCode =
+  | 'STRIPE_ACCOUNT_RESTRICTED'
+  | 'STRIPE_ONBOARDING_INCOMPLETE'
+  | 'STRIPE_CAPABILITY_PENDING';
+
+export interface AccountReadinessResult {
+  code: AccountReadinessCode;
+  message: string;
+}
+
+export interface StripeAccountClient {
+  accounts: Pick<Stripe.Stripe['accounts'], 'retrieve'>;
+}
+
+/**
+ * When `paymentIntents.create` fails on a connected account, retrieve the
+ * account and classify the failure so the UI can render the right guidance.
+ * Called only on the PI-create error path, so the extra Stripe round-trip is
+ * paid only when something is actually wrong.
+ */
+export async function getAccountReadiness(
+  connectedAccountId: string,
+  stripe: StripeAccountClient = getStripe()
+): Promise<AccountReadinessResult> {
+  try {
+    const account = await stripe.accounts.retrieve(connectedAccountId);
+    if (account.requirements?.disabled_reason) {
+      return {
+        code: 'STRIPE_ACCOUNT_RESTRICTED',
+        message:
+          'Stripe has restricted this account. Log in to Stripe to review the reason and next steps.',
+      };
+    }
+    const dueCount =
+      (account.requirements?.currently_due?.length ?? 0) +
+      (account.requirements?.past_due?.length ?? 0);
+    if (!account.charges_enabled || dueCount > 0) {
+      return {
+        code: 'STRIPE_ONBOARDING_INCOMPLETE',
+        message:
+          'Finish your Stripe account setup before accepting payments. Open Stripe to complete the remaining steps.',
+      };
+    }
+    return {
+      code: 'STRIPE_CAPABILITY_PENDING',
+      message:
+        'Your Stripe account is still being activated. Please retry in a moment.',
+    };
+  } catch {
+    return {
+      code: 'STRIPE_CAPABILITY_PENDING',
+      message:
+        'Your Stripe account is still being activated. Please retry in a moment.',
+    };
+  }
+}

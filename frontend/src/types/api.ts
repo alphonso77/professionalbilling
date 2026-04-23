@@ -206,7 +206,12 @@ export interface InvoiceWithItems extends Invoice {
   stripePublishableKey?: string;
   connectedAccountId?: string;
   paymentUrl?: string;
-  paymentUnavailableReason?: "seed_requires_test_mode";
+  paymentUnavailableReason?:
+    | "seed_requires_test_mode"
+    | "stripe_capability_pending"
+    | "stripe_onboarding_incomplete"
+    | "stripe_account_restricted";
+  paymentUnavailableMessage?: string;
 }
 
 export interface SendInvoiceResponse {

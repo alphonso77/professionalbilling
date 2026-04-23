@@ -4,6 +4,7 @@ import { AppError } from '../middleware/error-handler';
 import { isStripeTestMode } from '../utils/stripe-mode';
 import {
   createInvoicePaymentIntent,
+  getAccountReadiness,
   resolveConnectedAccountId,
 } from './stripe-payment-intents';
 
@@ -11,6 +12,7 @@ type Tdb = (table: string) => Knex.QueryBuilder;
 
 export interface EnsurePaymentIntentDeps {
   createPaymentIntent: typeof createInvoicePaymentIntent;
+  getAccountReadiness?: typeof getAccountReadiness;
 }
 
 export interface EnsuredPaymentIntent {
@@ -103,16 +105,27 @@ export async function ensurePaymentIntent(
 
   const total = typeof invoice.total_cents === 'string' ? Number(invoice.total_cents) : invoice.total_cents;
 
-  const pi = await deps.createPaymentIntent(
-    {
-      id: invoice.id,
-      orgId: invoice.org_id,
-      number: invoice.number,
-      totalCents: total,
-      clientEmail: client?.email ?? null,
-    },
-    connectedAccountId
-  );
+  let pi: { paymentIntentId: string; clientSecret: string };
+  try {
+    pi = await deps.createPaymentIntent(
+      {
+        id: invoice.id,
+        orgId: invoice.org_id,
+        number: invoice.number,
+        totalCents: total,
+        clientEmail: client?.email ?? null,
+      },
+      connectedAccountId
+    );
+  } catch (err) {
+    // Most common cause: a just-OAuth-connected account whose capabilities
+    // haven't finished propagating, or an account that never completed
+    // onboarding, or one that Stripe has restricted. Classify via a follow-up
+    // `accounts.retrieve` so callers can surface a specific reason to the UI.
+    const readinessFn = deps.getAccountReadiness ?? getAccountReadiness;
+    const readiness = await readinessFn(connectedAccountId);
+    throw new AppError(503, readiness.message, readiness.code);
+  }
 
   await t('invoices')
     .where({ id: invoiceId, org_id: invoice.org_id })

@@ -255,4 +255,114 @@ describe('services/ensure-payment-intent', () => {
     });
     expect(result.paymentIntentId).to.equal('pi_live');
   });
+
+  function seedReadyInvoiceAndPlatform(db: any) {
+    db._seed('invoices', {
+      id: 'inv_x',
+      org_id: 'org_1',
+      client_id: 'c1',
+      status: 'open',
+      total_cents: 10_000,
+      stripe_payment_intent_id: null,
+      stripe_client_secret: null,
+      number: '2026-0099',
+      seeded_at: null,
+    });
+    db._seed('platforms', {
+      org_id: 'org_1',
+      type: 'stripe',
+      external_account_id: 'acct_x',
+      credentials_encrypted: null,
+      credentials_iv: null,
+      credentials_tag: null,
+    });
+    db._seed('clients', { id: 'c1', email: 'real@customer.com' });
+  }
+
+  it('rethrows PI-create failure as STRIPE_CAPABILITY_PENDING when the account looks ready', async () => {
+    const db = makeMockDb();
+    seedReadyInvoiceAndPlatform(db);
+
+    let caught: unknown;
+    try {
+      await ensurePaymentIntent('inv_x', db as any, {
+        createPaymentIntent: async () => {
+          throw new Error('No valid payment method types for this Payment Intent');
+        },
+        getAccountReadiness: async () => ({
+          code: 'STRIPE_CAPABILITY_PENDING',
+          message: 'Your Stripe account is still being activated. Please retry in a moment.',
+        }),
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).to.be.instanceOf(AppError);
+    expect((caught as AppError).statusCode).to.equal(503);
+    expect((caught as AppError).code).to.equal('STRIPE_CAPABILITY_PENDING');
+  });
+
+  it('rethrows PI-create failure as STRIPE_ONBOARDING_INCOMPLETE when requirements are due', async () => {
+    const db = makeMockDb();
+    seedReadyInvoiceAndPlatform(db);
+
+    let caught: unknown;
+    try {
+      await ensurePaymentIntent('inv_x', db as any, {
+        createPaymentIntent: async () => {
+          throw new Error('account not ready');
+        },
+        getAccountReadiness: async () => ({
+          code: 'STRIPE_ONBOARDING_INCOMPLETE',
+          message: 'Finish your Stripe account setup before accepting payments.',
+        }),
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect((caught as AppError).code).to.equal('STRIPE_ONBOARDING_INCOMPLETE');
+  });
+
+  it('rethrows PI-create failure as STRIPE_ACCOUNT_RESTRICTED when Stripe has disabled the account', async () => {
+    const db = makeMockDb();
+    seedReadyInvoiceAndPlatform(db);
+
+    let caught: unknown;
+    try {
+      await ensurePaymentIntent('inv_x', db as any, {
+        createPaymentIntent: async () => {
+          throw new Error('disabled');
+        },
+        getAccountReadiness: async () => ({
+          code: 'STRIPE_ACCOUNT_RESTRICTED',
+          message: 'Stripe has restricted this account.',
+        }),
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect((caught as AppError).code).to.equal('STRIPE_ACCOUNT_RESTRICTED');
+  });
+
+  it('does not persist PI fields when createPaymentIntent fails', async () => {
+    const db = makeMockDb();
+    seedReadyInvoiceAndPlatform(db);
+
+    try {
+      await ensurePaymentIntent('inv_x', db as any, {
+        createPaymentIntent: async () => {
+          throw new Error('boom');
+        },
+        getAccountReadiness: async () => ({
+          code: 'STRIPE_CAPABILITY_PENDING',
+          message: 'retry',
+        }),
+      });
+    } catch {
+      /* expected */
+    }
+    const stored = db._tables.invoices[0];
+    expect(stored.stripe_payment_intent_id).to.equal(null);
+    expect(stored.stripe_client_secret).to.equal(null);
+  });
 });

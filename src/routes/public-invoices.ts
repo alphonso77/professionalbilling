@@ -154,7 +154,11 @@ export async function handlePublicInvoice(
       clientSecret = ensured.clientSecret;
     } catch (err) {
       if (err instanceof AppError && err.statusCode === 503) {
-        return { status: 503, body: { error: { message: err.message } } };
+        const body: { error: { message: string; code?: string } } = {
+          error: { message: err.message },
+        };
+        if (err.code) body.error.code = err.code;
+        return { status: 503, body };
       }
       throw err;
     }
