@@ -92,11 +92,13 @@ function chargeRefundedEvent(overrides: {
   amount?: number;
   amountRefunded?: number;
   refunded?: boolean;
-  refunds?: Array<{ id: string; amount: number; created: number; reason?: string | null }>;
+  previousAmountRefunded?: number;
+  created?: number;
 } = {}) {
   const pi = 'paymentIntentId' in overrides ? overrides.paymentIntentId : 'pi_1';
   return {
     id: overrides.eventId ?? 'evt_1',
+    created: overrides.created ?? 1776977764,
     data: {
       object: {
         id: overrides.chargeId ?? 'ch_1',
@@ -104,11 +106,9 @@ function chargeRefundedEvent(overrides: {
         amount: overrides.amount ?? 10000,
         amount_refunded: overrides.amountRefunded ?? 10000,
         refunded: overrides.refunded ?? true,
-        refunds: {
-          data: overrides.refunds ?? [
-            { id: 're_1', amount: 10000, created: 1776977764, reason: null },
-          ],
-        },
+      },
+      previous_attributes: {
+        amount_refunded: overrides.previousAmountRefunded ?? 0,
       },
     },
   };
@@ -133,7 +133,7 @@ describe('workers/stripe-events — handleChargeRefunded', () => {
       invoice_id: 'inv_1',
       org_id: 'org_1',
       stripe_charge_id: 'ch_1',
-      stripe_refund_id: 're_1',
+      stripe_event_id: 'evt_1',
       amount_cents: 10000,
     });
     expect(db._tables.invoices[0].status).to.equal('refunded');
@@ -154,22 +154,51 @@ describe('workers/stripe-events — handleChargeRefunded', () => {
       chargeRefundedEvent({
         amount: 10000,
         amountRefunded: 3000,
+        previousAmountRefunded: 0,
         refunded: false,
-        refunds: [{ id: 're_part', amount: 3000, created: 1776977764, reason: 'requested_by_customer' }],
       })
     );
 
     expect(outcome).to.equal('handled');
     expect(db._tables.invoice_refunds).to.have.length(1);
     expect(db._tables.invoice_refunds[0]).to.include({
-      stripe_refund_id: 're_part',
+      stripe_event_id: 'evt_1',
       amount_cents: 3000,
-      reason: 'requested_by_customer',
     });
     expect(db._tables.invoices[0].status).to.equal('paid');
   });
 
-  it('is idempotent: re-processing the same refund id inserts nothing new', async () => {
+  it('derives delta from previous_attributes when refunded on top of a prior partial refund', async () => {
+    const db = makeMockDb();
+    db._seed('invoices', {
+      id: 'inv_1',
+      org_id: 'org_1',
+      status: 'paid',
+      total_cents: 10000,
+      stripe_payment_intent_id: 'pi_1',
+    });
+
+    const outcome = await handleChargeRefunded(
+      db as any,
+      chargeRefundedEvent({
+        eventId: 'evt_second',
+        amount: 10000,
+        amountRefunded: 10000,
+        previousAmountRefunded: 3000,
+        refunded: true,
+      })
+    );
+
+    expect(outcome).to.equal('handled');
+    expect(db._tables.invoice_refunds).to.have.length(1);
+    expect(db._tables.invoice_refunds[0]).to.include({
+      stripe_event_id: 'evt_second',
+      amount_cents: 7000,
+    });
+    expect(db._tables.invoices[0].status).to.equal('refunded');
+  });
+
+  it('is idempotent: re-processing the same event id inserts nothing new', async () => {
     const db = makeMockDb();
     db._seed('invoices', {
       id: 'inv_1',
@@ -195,7 +224,7 @@ describe('workers/stripe-events — handleChargeRefunded', () => {
     expect(db._tables.invoice_refunds).to.have.length(0);
   });
 
-  it('ignores the event when refunds.data is empty', async () => {
+  it('ignores the event when the refund delta is zero or negative', async () => {
     const db = makeMockDb();
     db._seed('invoices', {
       id: 'inv_1',
@@ -207,7 +236,11 @@ describe('workers/stripe-events — handleChargeRefunded', () => {
 
     const outcome = await handleChargeRefunded(
       db as any,
-      chargeRefundedEvent({ refunds: [] })
+      chargeRefundedEvent({
+        amountRefunded: 5000,
+        previousAmountRefunded: 5000,
+        refunded: false,
+      })
     );
 
     expect(outcome).to.equal('ignored');
@@ -249,33 +282,5 @@ describe('workers/stripe-events — handleChargeRefunded', () => {
     expect(outcome).to.equal('handled');
     expect(db._tables.invoice_refunds).to.have.length(1);
     expect(db._tables.invoices[0].status).to.equal('void');
-  });
-
-  it('records multiple distinct refunds in a single event', async () => {
-    const db = makeMockDb();
-    db._seed('invoices', {
-      id: 'inv_1',
-      org_id: 'org_1',
-      status: 'paid',
-      total_cents: 10000,
-      stripe_payment_intent_id: 'pi_1',
-    });
-
-    const outcome = await handleChargeRefunded(
-      db as any,
-      chargeRefundedEvent({
-        amount: 10000,
-        amountRefunded: 10000,
-        refunded: true,
-        refunds: [
-          { id: 're_a', amount: 3000, created: 1, reason: null },
-          { id: 're_b', amount: 7000, created: 2, reason: null },
-        ],
-      })
-    );
-
-    expect(outcome).to.equal('handled');
-    expect(db._tables.invoice_refunds).to.have.length(2);
-    expect(db._tables.invoices[0].status).to.equal('refunded');
   });
 });

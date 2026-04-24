@@ -44,7 +44,7 @@ export interface InvoiceRefundRow {
   org_id: string;
   invoice_id: string;
   stripe_charge_id: string;
-  stripe_refund_id: string;
+  stripe_event_id: string;
   amount_cents: string | number;
   reason: string | null;
   stripe_created_at: string | Date;
@@ -117,7 +117,7 @@ export function serializeRefund(row: InvoiceRefundRow) {
     id: row.id,
     invoiceId: row.invoice_id,
     stripeChargeId: row.stripe_charge_id,
-    stripeRefundId: row.stripe_refund_id,
+    stripeEventId: row.stripe_event_id,
     amountCents: toNum(row.amount_cents),
     reason: row.reason,
     stripeCreatedAt: toIso(row.stripe_created_at) as string,

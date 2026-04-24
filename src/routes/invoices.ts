@@ -31,7 +31,7 @@ const InvoiceRefundSchema = z
     id: z.string().uuid(),
     invoiceId: z.string().uuid(),
     stripeChargeId: z.string(),
-    stripeRefundId: z.string(),
+    stripeEventId: z.string(),
     amountCents: z.number().int(),
     reason: z.string().nullable(),
     stripeCreatedAt: z.string(),

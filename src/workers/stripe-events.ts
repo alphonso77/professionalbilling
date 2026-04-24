@@ -65,6 +65,7 @@ export async function handlePaymentIntentSucceeded(
 
 interface ChargeRefundedPayload {
   id: string;
+  created: number;
   data: {
     object: {
       id?: string;
@@ -72,24 +73,23 @@ interface ChargeRefundedPayload {
       amount?: number;
       amount_refunded?: number;
       refunded?: boolean;
-      refunds?: {
-        data?: Array<{
-          id: string;
-          amount: number;
-          created: number;
-          reason?: string | null;
-        }>;
-      } | null;
+    };
+    previous_attributes?: {
+      amount_refunded?: number;
     };
   };
 }
 
 /**
- * On charge.refunded: record each Stripe Refund in `invoice_refunds` (keyed
- * by `stripe_refund_id` UNIQUE for idempotency across event retries). If
- * the charge is fully refunded, flip the invoice's `status` to `'refunded'`.
- * Partial refunds leave the invoice `'paid'`; the detail view shows the
- * per-refund history.
+ * On `charge.refunded`: derive the refund delta from the event's
+ * `previous_attributes.amount_refunded` vs the current `charge.amount_refunded`,
+ * record an `invoice_refunds` row keyed by `stripe_event_id` UNIQUE (idempotent
+ * across event retries), and flip the invoice to `'refunded'` when the charge
+ * is fully refunded. Partial refunds leave the invoice `'paid'`.
+ *
+ * Works purely from the event payload — Stripe API versions from 2023+ no
+ * longer attach `charge.refunds.data` on Charge events, so we don't rely on
+ * nested Refund objects and we don't round-trip back to the Stripe API.
  */
 export async function handleChargeRefunded(
   database: Knex,
@@ -106,30 +106,29 @@ export async function handleChargeRefunded(
     .first();
   if (!invoice) return 'ignored';
 
-  const refunds = charge.refunds?.data ?? [];
-  if (refunds.length === 0) return 'ignored';
+  const prev = event.data.previous_attributes?.amount_refunded ?? 0;
+  const curr = charge.amount_refunded ?? 0;
+  const delta = curr - prev;
+  if (delta <= 0) return 'ignored';
 
   const fullyRefunded =
     charge.refunded === true &&
     typeof charge.amount === 'number' &&
-    typeof charge.amount_refunded === 'number' &&
-    charge.amount_refunded >= charge.amount;
+    curr >= charge.amount;
 
   await database.transaction(async (trx) => {
-    for (const r of refunds) {
-      await trx('invoice_refunds')
-        .insert({
-          org_id: invoice.org_id,
-          invoice_id: invoice.id,
-          stripe_charge_id: chargeId,
-          stripe_refund_id: r.id,
-          amount_cents: r.amount,
-          reason: r.reason ?? null,
-          stripe_created_at: new Date(r.created * 1000),
-        })
-        .onConflict('stripe_refund_id')
-        .ignore();
-    }
+    await trx('invoice_refunds')
+      .insert({
+        org_id: invoice.org_id,
+        invoice_id: invoice.id,
+        stripe_charge_id: chargeId,
+        stripe_event_id: event.id,
+        amount_cents: delta,
+        reason: null,
+        stripe_created_at: new Date(event.created * 1000),
+      })
+      .onConflict('stripe_event_id')
+      .ignore();
     if (fullyRefunded && invoice.status !== 'refunded' && invoice.status !== 'void') {
       await trx('invoices').where({ id: invoice.id }).update({ status: 'refunded' });
     }

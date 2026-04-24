@@ -470,9 +470,8 @@ export function InvoiceDetailPage() {
                 <thead className="border-b border-[var(--color-border)] text-xs uppercase tracking-wide text-[var(--color-muted-foreground)]">
                   <tr>
                     <th className="px-6 py-3 text-left font-medium">Date</th>
-                    <th className="px-4 py-3 text-left font-medium">Reason</th>
                     <th className="px-4 py-3 text-left font-medium">
-                      Stripe refund
+                      Stripe charge
                     </th>
                     <th className="px-4 py-3 text-right font-medium">Amount</th>
                   </tr>
@@ -483,11 +482,8 @@ export function InvoiceDetailPage() {
                       <td className="px-6 py-3">
                         {formatDate(r.stripeCreatedAt)}
                       </td>
-                      <td className="px-4 py-3 text-[var(--color-muted-foreground)]">
-                        {r.reason ?? "—"}
-                      </td>
                       <td className="px-4 py-3 font-mono text-xs text-[var(--color-muted-foreground)]">
-                        {r.stripeRefundId}
+                        {r.stripeChargeId}
                       </td>
                       <td className="px-4 py-3 text-right font-medium">
                         {centsToCurrency(r.amountCents)}

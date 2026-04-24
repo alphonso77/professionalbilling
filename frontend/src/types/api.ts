@@ -204,7 +204,7 @@ export interface InvoiceRefund {
   id: string;
   invoiceId: string;
   stripeChargeId: string;
-  stripeRefundId: string;
+  stripeEventId: string;
   amountCents: number;
   reason: string | null;
   stripeCreatedAt: string;
