@@ -8,7 +8,7 @@ Prod: https://professionalbilling.fratellisoftware.com
 - Single repo, three Railway services from the same GitHub:
   - **api** (`Dockerfile`, `railway.toml`) — Express HTTP server
   - **workers** (`Dockerfile`, `railway.workers.toml`) — BullMQ consumers, same image, different CMD
-  - **frontend** (`/frontend/` subtree, Nixpacks auto-detect, no Dockerfile) — Vite SPA
+  - **frontend** (`/frontend/` subtree, `frontend/railway.toml` pins NIXPACKS, no Dockerfile) — Vite SPA
 - Postgres + Redis via Railway plugins
 - Stack: Node 20, TypeScript 5.6, Express 4, Knex 3 (no ORM), Zod 3, BullMQ 5, Clerk auth, Stripe Connect, Resend email, React 19 + Vite 8 + shadcn/ui + Tailwind 4
 
@@ -221,7 +221,7 @@ Platform-level pattern (one endpoint for all connected accounts):
 
 ## Deployment notes
 
-- Railway Nixpacks builds the frontend from `/frontend/` root directory — no Dockerfile.frontend needed, no port config needed (Nixpacks serves on `$PORT` automatically)
+- Railway Nixpacks builds the frontend from `/frontend/` root directory — no Dockerfile.frontend needed, no port config needed (Nixpacks serves on `$PORT` automatically). `frontend/railway.toml` explicitly sets `builder = "NIXPACKS"` to prevent the repo-root `railway.toml` (which targets the api Dockerfile) from being inherited by the frontend service.
 - api + workers share the Dockerfile; entrypoint picks behavior via `MODE` / CMD argument
 - Custom domains: `professionalbilling.fratellisoftware.com` (frontend), `api.professionalbilling.fratellisoftware.com` (api)
 - Migrations run automatically on api + workers boot via `docker-entrypoint.sh`
