@@ -85,9 +85,16 @@
 * frontend: `AdminPage` adds "All Users" tab gated by `is_super_admin`, Feedback tab shows the org column; `FeedbackPage` copy updated to clarify Fratelli reviews submissions
 * migration copies every existing `public.feedback` row into the new corporate table (denormalizing email + org_name at copy time) before dropping the old table — Timothy's submission preserved
 
-## In Progress
+### Refund Bug
 
 * fix refund gap, we aren't processing the inbound refund hooks from stripe
+
+## In Progress
+
+* Terms and conditions, record keeping
+    - capture the fact they accepted, and the date
+    - also need to have a link to the T&C on the main fratellisoftware.com site
+
 
 ## Pending
 
@@ -96,6 +103,11 @@
 * check out the code in IntegraSentry and follow the pattern there, for how to ensure migrations only run on the api
 * Today `scripts/docker-entrypoint.sh` runs `knex migrate:latest` on boot for both the `api` and `workers` services. Concurrent runs are safe (knex uses the `knex_migrations_lock` row) but wasteful, and it muddies the ownership story — workers shouldn't be a source of schema change.
 * Update CLAUDE.md "Deployment notes" to document the new ownership.
+
+### Update Docs
+
+* user facing docs need to be updated
+* docs need to be publicly available, and linked from fratellisoftware.com
 
 ### Phase 2B — Complete DB reset (admin feature)
 

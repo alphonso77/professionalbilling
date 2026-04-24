@@ -135,6 +135,9 @@ describe('routes/webhooks — handleClerkEvent', () => {
             stripeCustomerId: 'cus_xyz',
             stripeSubscriptionId: 'sub_xyz',
             trialEndAt: 1_700_000_000_000,
+            termsAcceptedAt: '2026-04-24T18:22:00.000Z',
+            termsVersion: '2026-04-23',
+            termsAcceptedIp: '203.0.113.42',
             source: 'fratellisoftware-com',
           },
         },
@@ -147,6 +150,9 @@ describe('routes/webhooks — handleClerkEvent', () => {
       stripe_customer_id: 'cus_xyz',
       stripe_subscription_id: 'sub_xyz',
       signup_source: 'fratellisoftware-com',
+      terms_accepted_at: '2026-04-24T18:22:00.000Z',
+      terms_version: '2026-04-23',
+      terms_accepted_ip: '203.0.113.42',
     });
     expect(org.trial_end_at).to.equal(new Date(1_700_000_000_000).toISOString());
   });

@@ -62,6 +62,10 @@ const PAYLOAD = {
   stripeCustomerId: 'cus_1',
   stripeSubscriptionId: 'sub_1',
   trialEndAt: 1_700_000_000_000,
+  termsAccepted: true,
+  termsAcceptedAt: '2026-04-24T18:22:00.000Z',
+  termsVersion: '2026-04-23',
+  termsAcceptedIp: '203.0.113.42',
 };
 
 describe('routes/fratelli-signup — verifyFratelliSignature', () => {
@@ -116,6 +120,11 @@ describe('routes/fratelli-signup — handleFratelliSignup', () => {
     expect(res.status).to.equal(200);
     expect(res.body).to.deep.include({ received: true, reused: false });
     expect(provision._calls).to.have.length(1);
+    expect(provision._calls[0]).to.deep.include({
+      termsAcceptedAt: PAYLOAD.termsAcceptedAt,
+      termsVersion: PAYLOAD.termsVersion,
+      termsAcceptedIp: PAYLOAD.termsAcceptedIp,
+    });
     expect(queue._calls).to.have.length(1);
     const [, job] = queue._calls[0] as [string, WelcomeEmailJobData];
     expect(job).to.deep.include({
@@ -238,6 +247,24 @@ describe('routes/fratelli-signup — router signature guard', () => {
 
   it('returns 400 on a payload that fails zod validation', async () => {
     const bad = JSON.stringify({ event: 'signup.completed', email: 'not-an-email' });
+    const sig = crypto
+      .createHmac('sha256', 'test-secret')
+      .update(bad)
+      .digest('hex');
+    const res = await fetch(`${baseUrl}/fs`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-fratelli-signature': `sha256=${sig}`,
+      },
+      body: bad,
+    });
+    expect(res.status).to.equal(400);
+  });
+
+  it('returns 400 when termsAcceptedAt is missing from the payload', async () => {
+    const { termsAcceptedAt: _drop, ...missingTerms } = PAYLOAD;
+    const bad = JSON.stringify(missingTerms);
     const sig = crypto
       .createHmac('sha256', 'test-secret')
       .update(bad)

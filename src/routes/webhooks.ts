@@ -97,6 +97,12 @@ export async function handleClerkEvent(
           const trialEndRaw = (meta as { trialEndAt?: number | null }).trialEndAt;
           const trialEndAt =
             typeof trialEndRaw === 'number' ? new Date(trialEndRaw).toISOString() : null;
+          const termsAcceptedAtRaw = (meta as { termsAcceptedAt?: string }).termsAcceptedAt;
+          const termsAcceptedAt =
+            typeof termsAcceptedAtRaw === 'string' ? termsAcceptedAtRaw : null;
+          const termsVersion = (meta as { termsVersion?: string | null }).termsVersion ?? null;
+          const termsAcceptedIp =
+            (meta as { termsAcceptedIp?: string | null }).termsAcceptedIp ?? null;
           await database('organizations')
             .where({ clerk_org_id: data.id })
             .update({
@@ -105,6 +111,9 @@ export async function handleClerkEvent(
               stripe_subscription_id: meta.stripeSubscriptionId,
               trial_end_at: trialEndAt,
               signup_source: (meta as { source?: string }).source ?? null,
+              terms_accepted_at: termsAcceptedAt,
+              terms_version: termsVersion,
+              terms_accepted_ip: termsAcceptedIp,
             });
           logger.info(`Stripe subscription metadata attached to org ${data.id}`, {
             stripeSubscriptionId: meta.stripeSubscriptionId,

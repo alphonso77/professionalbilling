@@ -22,6 +22,10 @@ const SignupPayload = z.object({
   stripeCustomerId: z.string().min(1),
   stripeSubscriptionId: z.string().min(1),
   trialEndAt: z.number().nullable(),
+  termsAccepted: z.boolean(),
+  termsAcceptedAt: z.string().datetime(),
+  termsVersion: z.string().nullable(),
+  termsAcceptedIp: z.string().nullable(),
 });
 
 type SignupPayload = z.infer<typeof SignupPayload>;
@@ -75,7 +79,15 @@ export async function handleFratelliSignup(
   database: Knex = db,
   provision: Provisioner = provisionCustomer
 ): Promise<FratelliSignupResult> {
-  const { email, stripeCustomerId, stripeSubscriptionId, trialEndAt } = payload;
+  const {
+    email,
+    stripeCustomerId,
+    stripeSubscriptionId,
+    trialEndAt,
+    termsAcceptedAt,
+    termsVersion,
+    termsAcceptedIp,
+  } = payload;
 
   try {
     const already = await database('audit_log')
@@ -99,6 +111,9 @@ export async function handleFratelliSignup(
       stripeCustomerId,
       stripeSubscriptionId,
       trialEndAt,
+      termsAcceptedAt,
+      termsVersion,
+      termsAcceptedIp,
     });
 
     await queue.add('welcome-email', {

@@ -20,6 +20,9 @@ export interface ProvisionCustomerInput {
   stripeCustomerId: string;
   stripeSubscriptionId: string;
   trialEndAt: number | null;
+  termsAcceptedAt: string;
+  termsVersion: string | null;
+  termsAcceptedIp: string | null;
 }
 
 export interface ProvisionCustomerResult {
@@ -54,12 +57,23 @@ export async function provisionCustomer(
   input: ProvisionCustomerInput,
   client: ClerkClient = getClerkClient()
 ): Promise<ProvisionCustomerResult> {
-  const { email, stripeCustomerId, stripeSubscriptionId, trialEndAt } = input;
+  const {
+    email,
+    stripeCustomerId,
+    stripeSubscriptionId,
+    trialEndAt,
+    termsAcceptedAt,
+    termsVersion,
+    termsAcceptedIp,
+  } = input;
 
   const publicMetadata = {
     stripeCustomerId,
     stripeSubscriptionId,
     trialEndAt,
+    termsAcceptedAt,
+    termsVersion,
+    termsAcceptedIp,
     source: 'fratellisoftware-com',
   };
 
