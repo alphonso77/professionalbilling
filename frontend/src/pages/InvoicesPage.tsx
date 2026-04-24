@@ -119,6 +119,7 @@ export function InvoicesPage() {
             <option value="draft">Draft</option>
             <option value="open">Open</option>
             <option value="paid">Paid</option>
+            <option value="refunded">Refunded</option>
             <option value="void">Void</option>
           </select>
         ) : null}
