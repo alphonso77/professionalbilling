@@ -6,6 +6,7 @@ const STYLES: Record<InvoiceStatus, string> = {
   open: "bg-[var(--color-primary)] text-[var(--color-primary-foreground)]",
   paid: "bg-emerald-600 text-white",
   void: "bg-[var(--color-muted)] text-[var(--color-muted-foreground)]",
+  refunded: "bg-amber-600 text-white",
 };
 
 const LABELS: Record<InvoiceStatus, string> = {
@@ -13,6 +14,7 @@ const LABELS: Record<InvoiceStatus, string> = {
   open: "Open",
   paid: "Paid",
   void: "Void",
+  refunded: "Refunded",
 };
 
 export function StatusBadge({ status }: { status: InvoiceStatus }) {

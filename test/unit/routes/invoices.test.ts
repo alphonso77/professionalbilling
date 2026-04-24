@@ -43,6 +43,7 @@ function makeMockDb(): MockDb {
   const tables: Record<string, Row[]> = {
     invoices: [],
     invoice_line_items: [],
+    invoice_refunds: [],
     invoice_sequences: [],
     clients: [],
     time_entries: [],

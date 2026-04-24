@@ -5,7 +5,7 @@ import { tdb, currentOrgId } from '../config/tenant-context';
 import { AppError } from '../middleware/error-handler';
 import { resolveConnectedAccountId } from './stripe-payment-intents';
 
-export type InvoiceStatus = 'draft' | 'open' | 'paid' | 'void';
+export type InvoiceStatus = 'draft' | 'open' | 'paid' | 'void' | 'refunded';
 
 export interface InvoiceRow {
   id: string;
@@ -36,6 +36,18 @@ export interface LineItemRow {
   quantity_hours: string | number;
   rate_cents: string | number;
   amount_cents: string | number;
+  created_at: string | Date;
+}
+
+export interface InvoiceRefundRow {
+  id: string;
+  org_id: string;
+  invoice_id: string;
+  stripe_charge_id: string;
+  stripe_refund_id: string;
+  amount_cents: string | number;
+  reason: string | null;
+  stripe_created_at: string | Date;
   created_at: string | Date;
 }
 
@@ -100,6 +112,19 @@ export function serializeLineItem(row: LineItemRow) {
   };
 }
 
+export function serializeRefund(row: InvoiceRefundRow) {
+  return {
+    id: row.id,
+    invoiceId: row.invoice_id,
+    stripeChargeId: row.stripe_charge_id,
+    stripeRefundId: row.stripe_refund_id,
+    amountCents: toNum(row.amount_cents),
+    reason: row.reason,
+    stripeCreatedAt: toIso(row.stripe_created_at) as string,
+    createdAt: toIso(row.created_at) as string,
+  };
+}
+
 /** Strip credentials from list responses (and any other non-detail surface). */
 export function serializeInvoiceForList(row: InvoiceRow) {
   const s = serializeInvoice(row);
@@ -154,10 +179,14 @@ export async function getInvoiceWithItems(
     .where({ id: invoice.client_id, org_id: orgId })
     .select('id', 'name', 'email')
     .first()) as { id: string; name: string; email: string | null } | undefined;
+  const refunds = (await t('invoice_refunds')
+    .where({ invoice_id: id, org_id: orgId })
+    .orderBy('stripe_created_at', 'desc')) as InvoiceRefundRow[];
   return {
     invoice,
     items,
     client: client ?? { id: invoice.client_id, name: 'Unknown', email: null },
+    refunds,
   };
 }
 
@@ -386,6 +415,9 @@ export async function voidInvoice(
   if (!invoice) throw new AppError(404, 'Invoice not found');
   if (invoice.status === 'paid') {
     throw new AppError(409, 'Paid invoices cannot be voided');
+  }
+  if (invoice.status === 'refunded') {
+    throw new AppError(409, 'Refunded invoices cannot be voided');
   }
   if (invoice.status === 'void') {
     return serializeInvoice(invoice);

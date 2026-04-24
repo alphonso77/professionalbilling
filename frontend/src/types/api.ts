@@ -165,7 +165,7 @@ export type Platform = {
   updated_at: string;
 };
 
-export type InvoiceStatus = "draft" | "open" | "paid" | "void";
+export type InvoiceStatus = "draft" | "open" | "paid" | "void" | "refunded";
 
 export interface Invoice {
   id: string;
@@ -200,8 +200,20 @@ export interface InvoiceLineItem {
   createdAt: string;
 }
 
+export interface InvoiceRefund {
+  id: string;
+  invoiceId: string;
+  stripeChargeId: string;
+  stripeRefundId: string;
+  amountCents: number;
+  reason: string | null;
+  stripeCreatedAt: string;
+  createdAt: string;
+}
+
 export interface InvoiceWithItems extends Invoice {
   lineItems: InvoiceLineItem[];
+  refunds: InvoiceRefund[];
   client: { id: string; name: string; email: string | null };
   stripePublishableKey?: string;
   connectedAccountId?: string;

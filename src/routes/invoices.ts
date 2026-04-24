@@ -12,6 +12,7 @@ import {
   listInvoices,
   serializeInvoice,
   serializeLineItem,
+  serializeRefund,
   updateDraft,
   voidInvoice,
 } from '../services/invoices';
@@ -23,7 +24,20 @@ import { AppError } from '../middleware/error-handler';
 
 const router = Router();
 
-const InvoiceStatusEnum = z.enum(['draft', 'open', 'paid', 'void']);
+const InvoiceStatusEnum = z.enum(['draft', 'open', 'paid', 'void', 'refunded']);
+
+const InvoiceRefundSchema = z
+  .object({
+    id: z.string().uuid(),
+    invoiceId: z.string().uuid(),
+    stripeChargeId: z.string(),
+    stripeRefundId: z.string(),
+    amountCents: z.number().int(),
+    reason: z.string().nullable(),
+    stripeCreatedAt: z.string(),
+    createdAt: z.string(),
+  })
+  .openapi('InvoiceRefund');
 
 const InvoiceSchema = z
   .object({
@@ -60,6 +74,7 @@ const InvoiceLineItemSchema = z
 
 const InvoiceWithItemsSchema = InvoiceSchema.extend({
   lineItems: z.array(InvoiceLineItemSchema),
+  refunds: z.array(InvoiceRefundSchema),
   client: z.object({
     id: z.string().uuid(),
     name: z.string(),
@@ -273,11 +288,13 @@ function buildDetailPayload(
   client: { id: string; name: string; email: string | null },
   connectedAccountId: string | null,
   paymentToken: string | null = null,
-  paymentUnavailable: PaymentUnavailable | null = null
+  paymentUnavailable: PaymentUnavailable | null = null,
+  refunds: ReturnType<typeof serializeRefund>[] = []
 ) {
   const payload: Record<string, unknown> = {
     ...invoice,
     lineItems,
+    refunds,
     client,
   };
 
@@ -317,7 +334,7 @@ export async function handleList(
 }
 
 export async function handleGet(id: string, orgId: string, t = tdb) {
-  const { invoice, items, client } = await getInvoiceWithItems(id, orgId, t);
+  const { invoice, items, client, refunds } = await getInvoiceWithItems(id, orgId, t);
 
   let paymentUnavailable: PaymentUnavailable | null = null;
   if (invoice.status === 'open' && !invoice.stripe_payment_intent_id) {
@@ -351,7 +368,8 @@ export async function handleGet(id: string, orgId: string, t = tdb) {
       client,
       connectedAccountId,
       invoice.payment_token,
-      paymentUnavailable
+      paymentUnavailable,
+      refunds.map(serializeRefund)
     ),
   };
 }

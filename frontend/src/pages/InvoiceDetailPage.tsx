@@ -105,6 +105,8 @@ export function InvoiceDetailPage() {
 
   const inv = invoiceQ.data;
   const { lineItems, client, status } = inv;
+  const refunds = inv.refunds ?? [];
+  const totalRefundedCents = refunds.reduce((sum, r) => sum + r.amountCents, 0);
 
   const handleFinalize = async () => {
     try {
@@ -449,6 +451,55 @@ export function InvoiceDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {refunds.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <div className="flex items-baseline justify-between gap-3">
+              <CardTitle className="text-base">Refunds</CardTitle>
+              <div className="text-sm text-[var(--color-muted-foreground)]">
+                {status === "refunded"
+                  ? `Fully refunded · ${centsToCurrency(totalRefundedCents)}`
+                  : `Partially refunded · ${centsToCurrency(totalRefundedCents)} of ${centsToCurrency(inv.totalCents)}`}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-[var(--color-border)] text-xs uppercase tracking-wide text-[var(--color-muted-foreground)]">
+                  <tr>
+                    <th className="px-6 py-3 text-left font-medium">Date</th>
+                    <th className="px-4 py-3 text-left font-medium">Reason</th>
+                    <th className="px-4 py-3 text-left font-medium">
+                      Stripe refund
+                    </th>
+                    <th className="px-4 py-3 text-right font-medium">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--color-border)]">
+                  {refunds.map((r) => (
+                    <tr key={r.id}>
+                      <td className="px-6 py-3">
+                        {formatDate(r.stripeCreatedAt)}
+                      </td>
+                      <td className="px-4 py-3 text-[var(--color-muted-foreground)]">
+                        {r.reason ?? "—"}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-[var(--color-muted-foreground)]">
+                        {r.stripeRefundId}
+                      </td>
+                      <td className="px-4 py-3 text-right font-medium">
+                        {centsToCurrency(r.amountCents)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {inv.notes ? (
         <Card>
