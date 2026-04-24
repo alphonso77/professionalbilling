@@ -91,6 +91,12 @@
 
 ## Pending
 
+### Migrations should only run from the api
+
+* check out the code in IntegraSentry and follow the pattern there, for how to ensure migrations only run on the api
+* Today `scripts/docker-entrypoint.sh` runs `knex migrate:latest` on boot for both the `api` and `workers` services. Concurrent runs are safe (knex uses the `knex_migrations_lock` row) but wasteful, and it muddies the ownership story — workers shouldn't be a source of schema change.
+* Update CLAUDE.md "Deployment notes" to document the new ownership.
+
 ### Phase 2B — Complete DB reset (admin feature)
 
 * admin feature for a complete DB reset
